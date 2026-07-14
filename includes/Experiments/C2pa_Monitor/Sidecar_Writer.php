@@ -21,7 +21,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * The directory is created on demand and hardened with an `.htaccess` deny
  * rule (Apache) and `index.php` placeholder. Operators on nginx must add a
- * `location` deny rule manually; see README.md.
+ * `location` deny rule manually; see docs/experiments/c2pa-monitor.md.
  *
  * @since 0.7.0
  */
@@ -55,11 +55,11 @@ class Sidecar_Writer {
 
 		$bytes_written = file_put_contents( $absolute, $manifest->bytes, LOCK_EX );
 		if ( false === $bytes_written ) {
-			throw new \RuntimeException( 'Failed to write C2PA sidecar file.' );
+			throw new \RuntimeException( esc_html__( 'Failed to write C2PA sidecar file.', 'ai' ) );
 		}
 		if ( $bytes_written !== $manifest->bytes_length ) {
 			wp_delete_file( $absolute );
-			throw new \RuntimeException( 'Short write for C2PA sidecar file.' );
+			throw new \RuntimeException( esc_html__( 'Short write for C2PA sidecar file.', 'ai' ) );
 		}
 
 		return $relative_dir . '/' . $basename;
@@ -77,13 +77,13 @@ class Sidecar_Writer {
 	public function ensure_dir(): string {
 		$uploads = wp_upload_dir( null, false );
 		if ( ! is_array( $uploads ) || empty( $uploads['basedir'] ) ) {
-			throw new \RuntimeException( 'wp_upload_dir() returned no basedir.' );
+			throw new \RuntimeException( esc_html__( 'Could not determine the uploads directory.', 'ai' ) );
 		}
 		$basedir = trailingslashit( (string) $uploads['basedir'] ) . self::SUBDIR;
 
 		if ( ! is_dir( $basedir ) ) {
 			if ( ! wp_mkdir_p( $basedir ) ) {
-				throw new \RuntimeException( 'Could not create C2PA sidecar directory.' );
+				throw new \RuntimeException( esc_html__( 'Could not create C2PA sidecar directory.', 'ai' ) );
 			}
 		}
 

@@ -223,6 +223,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$this->assertSame( 'c2pa-monitor', C2pa_Monitor::get_id() );
 		$this->assertNotEmpty( $this->feature->get_label() );
 		$this->assertNotEmpty( $this->feature->get_description() );
+		$this->assertSame( 'none', $this->feature->get_capability() );
 	}
 
 	/**
@@ -332,9 +333,10 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		}
 		$attachment_id = (int) $attachment_id;
 
-		$resolved = function_exists( 'wp_get_original_image_path' )
-			? wp_get_original_image_path( $attachment_id )
-			: get_attached_file( $attachment_id );
+		$resolved = wp_get_original_image_path( $attachment_id );
+		if ( ! is_string( $resolved ) || '' === $resolved ) {
+			$resolved = get_attached_file( $attachment_id );
+		}
 		if ( ! is_string( $resolved ) || ! is_readable( $resolved ) ) {
 			$this->markTestSkipped( 'Could not resolve attachment file for deletion.' );
 		}

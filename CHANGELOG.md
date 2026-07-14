@@ -2,10 +2,6 @@
 
 All notable changes to this project will be documented in this file, per [the Keep a Changelog standard](http://keepachangelog.com/), and will adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - TBD
-### Added
-- New Experiment: C2PA Monitor — read-only detection of [C2PA Content Credentials](https://c2pa.org/) in uploaded JPEG/PNG/WebP images. Captures the raw manifest store to a sidecar file under `wp-content/uploads/ai-c2pa/` and stores a structured `_wpai_monitor_record` postmeta entry for downstream consumers. Fail-open and never blocks an upload. JUMBF/CBOR claim decoding deferred to a follow-up PR.
-
 ## [1.1.0] - 2026-06-30
 ### Added
 - New Experiment: Type Ahead; automatically suggests ghost text at the end of paragraphs, can be manually triggered within a paragraph ([#151](https://github.com/WordPress/ai/pull/151), [#776](https://github.com/WordPress/ai/pull/776)).

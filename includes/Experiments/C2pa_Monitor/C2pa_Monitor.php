@@ -89,6 +89,7 @@ class C2pa_Monitor extends Abstract_Feature {
 			'description' => __( 'Detects C2PA Content Credentials in uploaded images and stores the raw manifest plus a structured record in postmeta. Read-only and fail-open; never blocks an upload.', 'ai' ),
 			'category'    => Experiment_Category::ADMIN,
 			'stability'   => 'experimental',
+			'capability'  => 'none',
 		);
 	}
 
@@ -141,7 +142,7 @@ class C2pa_Monitor extends Abstract_Feature {
 			if ( '' === $path || ! is_readable( $path ) ) {
 				$errors[] = array(
 					'stage'   => 'resolve_path',
-					'message' => 'Attachment file is not readable.',
+					'message' => esc_html__( 'Attachment file is not readable.', 'ai' ),
 				);
 				return;
 			}
@@ -150,7 +151,7 @@ class C2pa_Monitor extends Abstract_Feature {
 			if ( false === $size ) {
 				$errors[] = array(
 					'stage'   => 'stat',
-					'message' => 'filesize() returned false.',
+					'message' => esc_html__( 'Could not determine the file size.', 'ai' ),
 				);
 				return;
 			}
@@ -161,7 +162,8 @@ class C2pa_Monitor extends Abstract_Feature {
 			if ( $size > self::MAX_SCAN_BYTES ) {
 				$errors[] = array(
 					'stage'   => 'size_cap',
-					'message' => sprintf( 'File exceeds MAX_SCAN_BYTES (%d).', self::MAX_SCAN_BYTES ),
+					/* translators: %d: maximum number of bytes the scanner will read. */
+					'message' => sprintf( esc_html__( 'File exceeds the maximum scan size of %d bytes.', 'ai' ), self::MAX_SCAN_BYTES ),
 				);
 				return;
 			}
@@ -184,7 +186,7 @@ class C2pa_Monitor extends Abstract_Feature {
 			if ( null === $manifest ) {
 				$errors[] = array(
 					'stage'   => 'read_manifest',
-					'message' => 'Manifest_Reader returned null.',
+					'message' => esc_html__( 'The manifest could not be read.', 'ai' ),
 				);
 				return;
 			}
@@ -263,11 +265,9 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * @return string Absolute filesystem path, or empty string when unresolved.
 	 */
 	private static function get_original_path( int $attachment_id ): string {
-		if ( function_exists( 'wp_get_original_image_path' ) ) {
-			$path = wp_get_original_image_path( $attachment_id );
-			if ( is_string( $path ) && '' !== $path ) {
-				return $path;
-			}
+		$path = wp_get_original_image_path( $attachment_id );
+		if ( is_string( $path ) && '' !== $path ) {
+			return $path;
 		}
 
 		$path = get_attached_file( $attachment_id );
