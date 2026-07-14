@@ -5,12 +5,11 @@
 /**
  * WordPress dependencies
  */
-import { dispatch, select } from '@wordpress/data';
+import { dispatch, select, useSelect } from '@wordpress/data';
 import { store as coreStore } from '@wordpress/core-data';
 import { store as editorStore } from '@wordpress/editor';
-import { useState, useCallback } from '@wordpress/element';
+import { useState, useCallback, useEffect } from '@wordpress/element';
 import { store as noticesStore } from '@wordpress/notices';
-import { count as wordCount } from '@wordpress/wordcount';
 import { addQueryArgs } from '@wordpress/url';
 import apiFetch from '@wordpress/api-fetch';
 
@@ -18,6 +17,8 @@ import apiFetch from '@wordpress/api-fetch';
  * Internal dependencies
  */
 import { runAbility } from '../../../utils/run-ability';
+import { ensureProvider } from '../../../utils/provider-status';
+import { hasMinimumContent } from '../../../utils/character-count';
 import type {
 	ContentClassificationAbilityInput,
 	ContentClassificationResponse,
@@ -25,15 +26,49 @@ import type {
 	ContentClassificationData,
 } from '../types';
 
-const MINIMUM_WORD_COUNT = 150;
+const MINIMUM_CONTENT_COUNT_DEFAULT = 250;
 const NOTICE_ID = 'ai_content_classification_error';
+const DEFAULT_MAX_SUGGESTIONS = 5;
+const MIN_SUGGESTIONS = 1;
+const MAX_SUGGESTIONS = 10;
 
-const getSettings = (): ContentClassificationData =>
-	( window as any ).aiContentClassificationData ?? {
-		enabled: false,
-		strategy: 'existing_only',
-		maxSuggestions: 5,
+const suggestionsCache: Record< string, TagSuggestion[] > = {};
+
+/**
+ * Tracks the current suggestions generation cycle count for each taxonomy.
+ *
+ * Incremented on suggestion regeneration or dismissal.
+ * Prevents race conditions from stale request failures trying to restore pills.
+ */
+const generationCounts: Record< string, number > = {};
+
+const normalizeMaxSuggestions = ( value: unknown ): number => {
+	const parsedValue = Number.parseInt(
+		String( value ?? DEFAULT_MAX_SUGGESTIONS ),
+		10
+	);
+
+	if ( Number.isNaN( parsedValue ) ) {
+		return DEFAULT_MAX_SUGGESTIONS;
+	}
+
+	return Math.min(
+		MAX_SUGGESTIONS,
+		Math.max( MIN_SUGGESTIONS, parsedValue )
+	);
+};
+
+const getSettings = (): ContentClassificationData => {
+	const settings = ( window as any ).aiContentClassificationData ?? {};
+
+	return {
+		enabled: settings.enabled ?? false,
+		strategy: settings.strategy ?? 'existing_only',
+		maxSuggestions: normalizeMaxSuggestions( settings.maxSuggestions ),
+		minContentLength:
+			settings.minContentLength ?? MINIMUM_CONTENT_COUNT_DEFAULT,
 	};
+};
 
 /**
  * Generates taxonomy suggestions for the given post.
@@ -116,18 +151,44 @@ export function useContentClassification( taxonomy: string ): {
 	handleAccept: ( suggestion: TagSuggestion ) => void;
 	handleDismiss: ( suggestion: TagSuggestion ) => void;
 	handleDismissAll: () => void;
+	minContentLength: number;
 } {
-	const postId = select( editorStore ).getCurrentPostId() as number;
-	const content = select( editorStore ).getEditedPostContent();
-	const [ isGenerating, setIsGenerating ] = useState< boolean >( false );
-	const [ suggestions, setSuggestions ] = useState< TagSuggestion[] >( [] );
-	const { removeNotice, createErrorNotice } = dispatch( noticesStore ) as any;
+	const { postId, content } = useSelect( ( selectFn ) => {
+		const editor = selectFn( editorStore );
 
-	// Check if content has enough words.
-	const hasEnoughContent =
-		wordCount( content || '', 'words' ) >= MINIMUM_WORD_COUNT;
+		return {
+			postId: editor.getCurrentPostId() as number,
+			content: editor.getEditedPostContent(),
+		};
+	}, [] );
+	const [ isGenerating, setIsGenerating ] = useState< boolean >( false );
+	const [ suggestions, setSuggestions ] = useState< TagSuggestion[] >(
+		() => suggestionsCache[ taxonomy ] ?? []
+	);
+
+	// Sync suggestions to the cache whenever they change.
+	useEffect( () => {
+		suggestionsCache[ taxonomy ] = suggestions;
+	}, [ taxonomy, suggestions ] );
+
+	const { removeNotice, createErrorNotice } = dispatch( noticesStore );
+
+	const { minContentLength } = getSettings();
+
+	// Check if content has enough characters.
+	const hasEnoughContent = hasMinimumContent(
+		content || '',
+		minContentLength
+	);
 
 	const handleGenerate = useCallback( async () => {
+		if ( ! ensureProvider( NOTICE_ID ) ) {
+			return;
+		}
+
+		generationCounts[ taxonomy ] =
+			( generationCounts[ taxonomy ] || 0 ) + 1;
+
 		const settings = getSettings();
 		setIsGenerating( true );
 		setSuggestions( [] );
@@ -136,10 +197,12 @@ export function useContentClassification( taxonomy: string ): {
 		removeNotice( NOTICE_ID );
 
 		try {
+			const latestContent = select( editorStore ).getEditedPostContent();
+
 			// Generate suggestions.
 			const result = await generateSuggestions(
 				postId,
-				content,
+				latestContent,
 				taxonomy,
 				settings.strategy,
 				settings.maxSuggestions
@@ -162,7 +225,7 @@ export function useContentClassification( taxonomy: string ): {
 		} finally {
 			setIsGenerating( false );
 		}
-	}, [ postId, content, taxonomy, removeNotice, createErrorNotice ] );
+	}, [ postId, taxonomy, removeNotice, createErrorNotice ] );
 
 	// Remove a suggestion from the list.
 	const removeSuggestionFromList = ( suggestion: TagSuggestion ) => {
@@ -174,8 +237,32 @@ export function useContentClassification( taxonomy: string ): {
 	// Handle accepting a suggestion.
 	const handleAccept = useCallback(
 		( suggestion: TagSuggestion ) => {
-			removeSuggestionFromList( suggestion );
-			addTermToPost( taxonomy, suggestion );
+			// Obtain original position of the suggestion before removal.
+			let originalIndex = -1;
+			setSuggestions( ( prev ) => {
+				originalIndex = prev.findIndex(
+					( s ) => s.term === suggestion.term
+				);
+				return prev.filter( ( s ) => s.term !== suggestion.term );
+			} );
+
+			const clickGenerationCount = generationCounts[ taxonomy ] || 0;
+
+			addTermToPost( taxonomy, suggestion ).then( ( success ) => {
+				if ( success ) {
+					return;
+				}
+
+				// Ensure to not add suggestion back if a new generation/clear has been triggered.
+				if (
+					( generationCounts[ taxonomy ] || 0 ) ===
+					clickGenerationCount
+				) {
+					setSuggestions( ( prev ) =>
+						insertSuggestionAt( prev, suggestion, originalIndex )
+					);
+				}
+			} );
 		},
 		[ taxonomy ]
 	);
@@ -187,8 +274,10 @@ export function useContentClassification( taxonomy: string ): {
 
 	// Handle dismissing all suggestions.
 	const handleDismissAll = useCallback( () => {
+		generationCounts[ taxonomy ] =
+			( generationCounts[ taxonomy ] || 0 ) + 1;
 		setSuggestions( [] );
-	}, [] );
+	}, [ taxonomy ] );
 
 	return {
 		isGenerating,
@@ -198,7 +287,37 @@ export function useContentClassification( taxonomy: string ): {
 		handleAccept,
 		handleDismiss,
 		handleDismissAll,
+		minContentLength,
 	};
+}
+
+/**
+ * Inserts a suggestion back into a list at the specified index, preventing duplicates.
+ *
+ * @param list       The current list of suggestions.
+ * @param suggestion The suggestion to insert.
+ * @param index      The index to insert the suggestion at.
+ * @return The updated list of suggestions.
+ */
+function insertSuggestionAt(
+	list: TagSuggestion[],
+	suggestion: TagSuggestion,
+	index: number
+): TagSuggestion[] {
+	// Skip if already present.
+	if ( list.some( ( s ) => s.term === suggestion.term ) ) {
+		return list;
+	}
+
+	// If original index is invalid, push to the end.
+	if ( index < 0 || index > list.length ) {
+		return [ ...list, suggestion ];
+	}
+
+	// Otherwise, insert at the correct position.
+	const newList = [ ...list ];
+	newList.splice( index, 0, suggestion );
+	return newList;
 }
 
 /**
@@ -206,14 +325,12 @@ export function useContentClassification( taxonomy: string ): {
  *
  * @param taxonomy   The taxonomy slug.
  * @param suggestion The suggestion to add.
+ * @return Promise resolving to true if successful, false otherwise.
  */
 async function addTermToPost(
 	taxonomy: string,
 	suggestion: TagSuggestion
-): Promise< void > {
-	const { editPost }: any = dispatch( editorStore );
-	const { getEditedPostAttribute } = select( editorStore );
-
+): Promise< boolean > {
 	const taxonomyObject: any = select( coreStore ).getTaxonomy( taxonomy );
 	const restBase = taxonomyObject?.rest_base ?? taxonomy;
 
@@ -227,8 +344,13 @@ async function addTermToPost(
 		);
 		if ( resolvedParent ) {
 			parentId = resolvedParent;
+		} else {
+			return false;
 		}
 	}
+
+	const { editPost }: any = dispatch( editorStore );
+	const { getEditedPostAttribute } = select( editorStore );
 
 	const currentTerms: number[] = getEditedPostAttribute( restBase ) ?? [];
 	const termId = await findOrCreateTerm(
@@ -238,11 +360,16 @@ async function addTermToPost(
 		parentId
 	);
 
-	if ( termId && ! currentTerms.includes( termId ) ) {
-		editPost( {
-			[ restBase ]: [ ...currentTerms, termId ],
-		} );
+	if ( termId ) {
+		if ( ! currentTerms.includes( termId ) ) {
+			editPost( {
+				[ restBase ]: [ ...currentTerms, termId ],
+			} );
+		}
+		return true;
 	}
+
+	return false;
 }
 
 /**
@@ -291,7 +418,7 @@ async function findOrCreateTerm(
 
 		return newTerm?.id ?? null;
 	} catch ( error: any ) {
-		const { createErrorNotice } = dispatch( noticesStore ) as any;
+		const { createErrorNotice } = dispatch( noticesStore );
 		createErrorNotice(
 			error?.message ||
 				`Could not add term "${ termName }". Please try again.`,

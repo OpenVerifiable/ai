@@ -6,10 +6,11 @@
  * WordPress dependencies
  */
 import { Button, Flex, FlexItem } from '@wordpress/components';
-import { select } from '@wordpress/data';
+import { useSelect } from '@wordpress/data';
 import { store as coreStore } from '@wordpress/core-data';
-import { __, sprintf } from '@wordpress/i18n';
+import { __, isRTL, sprintf } from '@wordpress/i18n';
 import { close as closeIcon, update } from '@wordpress/icons';
+import { useInstanceId } from '@wordpress/compose';
 
 /**
  * Internal dependencies
@@ -42,9 +43,24 @@ export default function SuggestionPanel( {
 		handleAccept,
 		handleDismiss,
 		handleDismissAll,
+		minContentLength,
 	} = useContentClassification( taxonomy );
 
-	const taxonomyObject: any = select( coreStore ).getTaxonomy( taxonomy );
+	const taxonomyObject: any = useSelect(
+		( selectFn ) => selectFn( coreStore ).getTaxonomy( taxonomy ),
+		[ taxonomy ]
+	);
+
+	const classificationHintId = useInstanceId(
+		SuggestionPanel,
+		'suggestion-panel-classification-hint'
+	);
+
+	const classificationSuggestionsId = useInstanceId(
+		SuggestionPanel,
+		'suggestion-panel-classification-suggestions'
+	);
+
 	const taxonomyLabel: string = taxonomyObject?.name ?? taxonomy;
 
 	const hasSuggestions = suggestions.length > 0;
@@ -53,6 +69,7 @@ export default function SuggestionPanel( {
 		<div className="ai-content-classification">
 			{ ! hasSuggestions && (
 				<Button
+					accessibleWhenDisabled
 					icon={ update }
 					variant="secondary"
 					onClick={ handleGenerate }
@@ -60,6 +77,9 @@ export default function SuggestionPanel( {
 					isBusy={ isGenerating }
 					className="ai-content-classification__generate-button"
 					__next40pxDefaultSize
+					aria-describedby={
+						! hasEnoughContent ? classificationHintId : undefined
+					}
 				>
 					{ isGenerating
 						? __( 'Generating…', 'ai' )
@@ -72,24 +92,39 @@ export default function SuggestionPanel( {
 			) }
 
 			{ ! hasEnoughContent && ! hasSuggestions && (
-				<p className="ai-content-classification__hint components-base-control__help">
-					{ __(
-						'Add more content to enable AI suggestions (approximately 150 words).',
-						'ai'
+				<p
+					id={ classificationHintId }
+					className="ai-content-classification__hint components-base-control__help"
+					style={ { color: '#757575' } }
+				>
+					{ sprintf(
+						/* translators: %d: Minimum content length in characters. */
+						__(
+							'Content Classification will be available when the post content has at least %d characters.',
+							'ai'
+						),
+						minContentLength
 					) }
 				</p>
 			) }
 
 			{ hasSuggestions && (
 				<div className="ai-content-classification__suggestions">
-					<h3 className="ai-content-classification__suggestions-title">
+					<h3
+						id={ classificationSuggestionsId }
+						className="ai-content-classification__suggestions-title"
+					>
 						{ sprintf(
 							/* translators: %s: Taxonomy label (e.g., "Tags" or "Categories"). */
 							__( 'Suggested %s', 'ai' ),
 							taxonomyLabel
 						) }
 					</h3>
-					<div className="ai-content-classification__pills">
+					<div
+						className="ai-content-classification__pills"
+						aria-labelledby={ classificationSuggestionsId }
+						role="list"
+					>
 						{ suggestions.map( ( suggestion: TagSuggestion ) => (
 							<span
 								key={ suggestion.term }
@@ -98,6 +133,7 @@ export default function SuggestionPanel( {
 										? ' ai-content-classification__pill--new'
 										: ''
 								}` }
+								role="listitem"
 							>
 								<Button
 									className="ai-content-classification__pill-accept"
@@ -107,10 +143,12 @@ export default function SuggestionPanel( {
 										__( 'Add "%s"', 'ai' ),
 										suggestion.term
 									) }
+									size="small"
 								>
 									{ suggestion.parent && (
 										<span className="ai-content-classification__pill-parent">
-											{ suggestion.parent + ' › ' }
+											{ suggestion.parent +
+												( isRTL() ? ' ‹ ' : ' › ' ) }
 										</span>
 									) }
 									{ suggestion.term }
@@ -132,6 +170,7 @@ export default function SuggestionPanel( {
 										__( 'Dismiss "%s"', 'ai' ),
 										suggestion.term
 									) }
+									size="small"
 								/>
 							</span>
 						) ) }
@@ -141,11 +180,7 @@ export default function SuggestionPanel( {
 						className="ai-content-classification__actions"
 					>
 						<FlexItem>
-							<Button
-								variant="link"
-								onClick={ handleGenerate }
-								disabled={ isGenerating }
-							>
+							<Button variant="link" onClick={ handleGenerate }>
 								{ __( 'Suggest again', 'ai' ) }
 							</Button>
 						</FlexItem>

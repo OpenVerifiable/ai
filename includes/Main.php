@@ -11,9 +11,14 @@ declare( strict_types=1 );
 
 namespace WordPress\AI;
 
+use WordPress\AI\Abilities\Content\Content as Content_Ability;
+use WordPress\AI\Abilities\Settings\Settings as Settings_Ability;
+use WordPress\AI\Abilities\Show_In_Abilities;
+use WordPress\AI\Abilities\Users\Users as Users_Ability;
 use WordPress\AI\Abilities\Utilities\Posts;
 use WordPress\AI\Admin\Activation;
 use WordPress\AI\Admin\Dashboard\Dashboard_Widgets;
+use WordPress\AI\Admin\Deactivation;
 use WordPress\AI\Admin\Upgrades;
 use WordPress\AI\Experiments\Experiments;
 use WordPress\AI\Features\Loader;
@@ -64,6 +69,7 @@ final class Main {
 
 		// Register activation and deactivation hooks.
 		register_activation_hook( WPAI_PLUGIN_FILE, array( Activation::class, 'activation_callback' ) );
+		register_deactivation_hook( WPAI_PLUGIN_FILE, array( Deactivation::class, 'deactivation_callback' ) );
 	}
 
 	/**
@@ -93,6 +99,9 @@ final class Main {
 
 		// Defer feature initialization to the 'init' action.
 		add_action( 'init', array( $this, 'initialize_features' ), 15 );
+
+		// Register provider data globally so it is available to any plugin script.
+		add_action( 'init', array( $this, 'register_provider_data' ), 20 );
 
 		// Register the default ability category.
 		add_action( 'wp_abilities_api_categories_init', array( $this, 'register_ability_category' ) );
@@ -126,6 +135,13 @@ final class Main {
 
 			// Register our post-related WordPress Abilities.
 			( new Posts() )->register();
+
+			// Expose curated core objects to the Abilities API, then register the
+			// core abilities (overriding any core-provided copies).
+			( new Show_In_Abilities() )->register();
+			( new Settings_Ability() )->init();
+			( new Users_Ability() )->init();
+			( new Content_Ability() )->init();
 		} catch ( \Throwable $e ) {
 			_doing_it_wrong(
 				__METHOD__,
@@ -166,6 +182,15 @@ final class Main {
 		array_unshift( $links, $connectors_link, $settings_link );
 
 		return $links;
+	}
+
+	/**
+	 * Registers provider availability data for frontend scripts.
+	 *
+	 * @since 1.0.0
+	 */
+	public function register_provider_data(): void {
+		Asset_Loader::add_global_data( 'ProviderData', get_provider_availability_data() );
 	}
 
 	/**
