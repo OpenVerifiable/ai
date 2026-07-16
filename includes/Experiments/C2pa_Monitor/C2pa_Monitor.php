@@ -27,13 +27,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  * for every uploaded image. The capture is read-only, fail-open, and never
  * blocks the upload pipeline.
  *
- * @since 0.7.0
+ * @since x.x.x
  */
 class C2pa_Monitor extends Abstract_Feature {
 	/**
 	 * Postmeta key used to store the structured monitor record.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @var string
 	 */
@@ -42,7 +42,7 @@ class C2pa_Monitor extends Abstract_Feature {
 	/**
 	 * Schema version for the postmeta record. Increment on breaking changes.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @var int
 	 */
@@ -51,7 +51,7 @@ class C2pa_Monitor extends Abstract_Feature {
 	/**
 	 * Hard cap on a single image scan. Files larger than this are skipped.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @var int
 	 */
@@ -67,7 +67,7 @@ class C2pa_Monitor extends Abstract_Feature {
 	 *
 	 * @todo Migrate to https://w3id.org/openverifiable/v1 (Phase 3).
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @var string
 	 */
@@ -109,7 +109,7 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * never throws, never returns an error, and never blocks the upload.
 	 * Unsupported MIME types are left untouched: no postmeta is written.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @param int $attachment_id The newly created attachment ID.
 	 * @return void
@@ -240,7 +240,7 @@ class C2pa_Monitor extends Abstract_Feature {
 	/**
 	 * Returns true for image MIME types this experiment knows how to inspect.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @param string $mime MIME type.
 	 * @return bool
@@ -259,7 +259,7 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * Falls back to get_attached_file() when wp_get_original_image_path() does
 	 * not return a usable path (non-image attachments, edited media, etc.).
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @param int $attachment_id Attachment ID.
 	 * @return string Absolute filesystem path, or empty string when unresolved.
@@ -278,7 +278,7 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * Returns the path relative to the uploads basedir, or the absolute path
 	 * if it lives outside uploads.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @param string $absolute Absolute path.
 	 * @return string Relative path or original absolute path.

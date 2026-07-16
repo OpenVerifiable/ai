@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * rule (Apache) and `index.php` placeholder. Operators on nginx must add a
  * `location` deny rule manually; see docs/experiments/c2pa-monitor.md.
  *
- * @since 0.7.0
+ * @since x.x.x
  */
 class Sidecar_Writer {
 	/**
@@ -36,7 +36,7 @@ class Sidecar_Writer {
 	/**
 	 * Persists $manifest for $attachment_id and returns the relative path.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @param int                                                $attachment_id Attachment ID.
 	 * @param \WordPress\AI\Experiments\C2pa_Monitor\Raw_Manifest $manifest      Manifest payload to persist.
@@ -68,7 +68,7 @@ class Sidecar_Writer {
 	/**
 	 * Ensures the sidecar subdirectory exists with hardening files.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @return string Absolute path to the sidecar directory.
 	 *
@@ -97,7 +97,7 @@ class Sidecar_Writer {
 	 * exist. Failures here are non-fatal: the sidecar directory may still be
 	 * usable on hosts where the web server is configured externally.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @param string $basedir Absolute path to the sidecar directory.
 	 * @return void
@@ -128,7 +128,7 @@ class Sidecar_Writer {
 	/**
 	 * Sanitizes the format string used in sidecar filenames.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @param string $format Format identifier from Format_Detector.
 	 * @return string Lowercase a-z0-9 only, defaulting to 'bin'.

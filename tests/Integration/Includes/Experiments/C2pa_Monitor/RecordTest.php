@@ -18,7 +18,7 @@ use WordPress\AI\Experiments\C2pa_Monitor\Record;
  * missing keys, JSON storage format, and graceful handling of corrupt or
  * absent postmeta.
  *
- * @since 0.7.0
+ * @since x.x.x
  */
 class RecordTest extends WP_UnitTestCase {
 	/**

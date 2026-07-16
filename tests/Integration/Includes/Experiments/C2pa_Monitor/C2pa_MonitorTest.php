@@ -20,7 +20,7 @@ require_once __DIR__ . '/Fixtures.php';
  * Drives capture_for_attachment() against fixture-built attachments and
  * asserts the postmeta record + sidecar file shape.
  *
- * @since 0.7.0
+ * @since x.x.x
  */
 class C2pa_MonitorTest extends WP_UnitTestCase {
 	/**

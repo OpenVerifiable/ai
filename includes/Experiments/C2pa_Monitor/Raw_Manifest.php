@@ -20,13 +20,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  * JUMBF or CBOR; downstream consumers receive `bytes` verbatim and may parse
  * them out of band.
  *
- * @since 0.7.0
+ * @since x.x.x
  */
 final class Raw_Manifest {
 	/**
 	 * Image container format (jpeg, png, webp).
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @var string
 	 */
@@ -35,7 +35,7 @@ final class Raw_Manifest {
 	/**
 	 * Container label, e.g. 'APP11/JUMBF', 'PNG/caBX', 'WebP/C2PA'.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @var string
 	 */
@@ -44,7 +44,7 @@ final class Raw_Manifest {
 	/**
 	 * SHA-256 of the raw manifest bytes (lowercase hex).
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @var string
 	 */
@@ -53,7 +53,7 @@ final class Raw_Manifest {
 	/**
 	 * Length of the raw manifest bytes in octets.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @var int
 	 */
@@ -62,7 +62,7 @@ final class Raw_Manifest {
 	/**
 	 * Raw manifest store bytes.
 	 *
-	 * @since 0.7.0
+	 * @since x.x.x
 	 *
 	 * @var string
 	 */
