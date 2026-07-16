@@ -96,7 +96,7 @@ class Manifest_Reader {
 
 		try {
 			foreach ( $segments as $segment ) {
-				if ( ! is_array( $segment ) || count( $segment ) < 2 ) {
+				if ( count( $segment ) < 2 ) {
 					return null;
 				}
 				$offset = (int) $segment[0];
