@@ -42,7 +42,7 @@ Stored at `_wpai_monitor_record` as a JSON-encoded string.
 {
 	"@context": [
 		"https://schema.org/",
-		"https://raw.githubusercontent.com/decentralized-identity/credential-schemas/main/community-schemas/WordPress/schemas/wpai-monitor-record/context.json"
+		"https://w3id.org/openverifiable/v1"
 	],
 	"schema_version": 1,
 	"captured_at": "2026-04-22T19:30:00Z",
@@ -70,6 +70,8 @@ Stored at `_wpai_monitor_record` as a JSON-encoded string.
 	"errors": []
 }
 ```
+
+The `@context` entry `https://w3id.org/openverifiable/v1` is a permanent [w3id.org](https://w3id.org/) identifier that 302-redirects to the OpenVerifiable JSON-LD context in the DIF credential-schemas repo. Using the w3id identifier keeps the value baked into every stored record stable even if the underlying document moves (registration: [perma-id/w3id.org#6007](https://github.com/perma-id/w3id.org/pull/6007)).
 
 When no manifest is found, `c2pa` collapses to `{ "present": false, "format": <detected or null> }` and no sidecar is written.
 

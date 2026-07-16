@@ -60,18 +60,21 @@ class C2pa_Monitor extends Abstract_Feature {
 	/**
 	 * JSON-LD context URL embedded in every stored postmeta record.
 	 *
-	 * Interim URL resolving via raw.githubusercontent.com. Migrate to
-	 * https://w3id.org/openverifiable/v1 once the w3id.org PR is merged
-	 * and the openverifiable/contexts repo is live (Phase 3 of the OVE
-	 * vocabulary hosting plan). Bump SCHEMA_VERSION when this changes.
+	 * Permanent identifier served via w3id.org, which 302-redirects to the
+	 * OpenVerifiable JSON-LD context maintained in the DIF credential-schemas
+	 * repo (community-schemas/WordPress/schemas/wpai-monitor-record/context.json).
+	 * Using the w3id.org identifier keeps the value baked into every stored
+	 * record stable even if the underlying document location changes. Bump
+	 * SCHEMA_VERSION only if the context vocabulary itself changes, not when
+	 * the redirect target moves.
 	 *
-	 * @todo Migrate to https://w3id.org/openverifiable/v1 (Phase 3).
+	 * @see https://github.com/perma-id/w3id.org/pull/6007 w3id.org redirect registration.
 	 *
 	 * @since x.x.x
 	 *
 	 * @var string
 	 */
-	public const CONTEXT_URL = 'https://raw.githubusercontent.com/decentralized-identity/credential-schemas/main/community-schemas/WordPress/schemas/wpai-monitor-record/context.json';
+	public const CONTEXT_URL = 'https://w3id.org/openverifiable/v1';
 
 	/**
 	 * {@inheritDoc}
