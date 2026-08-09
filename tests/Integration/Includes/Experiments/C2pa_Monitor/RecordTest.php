@@ -178,4 +178,25 @@ class RecordTest extends WP_UnitTestCase {
 
 		$this->assertNull( Record::load( $id ) );
 	}
+
+	/**
+	 * store() writes the lightweight sort meta key alongside the full record.
+	 */
+	public function test_store_writes_sort_meta_key(): void {
+		$id = $this->make_attachment_id();
+
+		// present = true -> sort key 1.
+		$record_present = array(
+			'c2pa' => array( 'present' => true, 'format' => 'jpeg' ),
+		);
+		Record::store( $id, $record_present );
+		$this->assertSame( '1', get_post_meta( $id, C2pa_Monitor::SORT_META_KEY, true ) );
+
+		// present = false -> sort key 0.
+		$record_absent = array(
+			'c2pa' => array( 'present' => false, 'format' => 'jpeg' ),
+		);
+		Record::store( $id, $record_absent );
+		$this->assertSame( '0', get_post_meta( $id, C2pa_Monitor::SORT_META_KEY, true ) );
+	}
 }

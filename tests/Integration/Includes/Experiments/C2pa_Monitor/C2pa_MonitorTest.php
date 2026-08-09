@@ -467,6 +467,81 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * register_sortable_column() adds the column to the sortable map when enabled,
+	 * and leaves it unchanged when disabled.
+	 */
+	public function test_register_sortable_column_when_enabled_and_disabled(): void {
+		$base = array( 'title' => array( 'title', false ) );
+
+		update_option( 'wpai_features_enabled', true );
+		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
+		$with = ( new C2pa_Monitor() )->register_sortable_column( $base );
+		$this->assertArrayHasKey( 'wpai_c2pa', $with );
+		$this->assertSame( array( 'wpai_c2pa', true ), $with['wpai_c2pa'] );
+
+		update_option( 'wpai_feature_c2pa-monitor_enabled', false );
+		$without = ( new C2pa_Monitor() )->register_sortable_column( $base );
+		$this->assertArrayNotHasKey( 'wpai_c2pa', $without );
+
+		delete_option( 'wpai_features_enabled' );
+		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
+	}
+
+	/**
+	 * sort_by_c2pa_column() sets meta_key and orderby on the query when
+	 * on the admin screen and ordering by wpai_c2pa.
+	 */
+	public function test_sort_by_c2pa_column_modifies_query(): void {
+		update_option( 'wpai_features_enabled', true );
+		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
+		$feature = new C2pa_Monitor();
+
+		$query = new \WP_Query();
+		$query->set( 'orderby', 'wpai_c2pa' );
+
+		// Simulate is_admin() context.
+		// Simulate is_admin() = true by setting the global screen to a minimal mock.
+		$prev_screen = $GLOBALS['current_screen'] ?? null;
+		$GLOBALS['current_screen'] = new class() {
+			// phpcs:ignore
+			public function in_admin( string $type = '' ): bool { return '' === $type || 'site' === $type; }
+		};
+		$feature->sort_by_c2pa_column( $query );
+		$GLOBALS['current_screen'] = $prev_screen;
+
+		$this->assertSame( C2pa_Monitor::SORT_META_KEY, $query->get( 'meta_key' ) );
+		$this->assertSame( 'meta_value_num', $query->get( 'orderby' ) );
+
+		delete_option( 'wpai_features_enabled' );
+		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
+	}
+
+	/**
+	 * sort_by_c2pa_column() is a no-op when ordering by a different column.
+	 */
+	public function test_sort_by_c2pa_column_ignores_other_orderbys(): void {
+		update_option( 'wpai_features_enabled', true );
+		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
+		$feature = new C2pa_Monitor();
+
+		$query = new \WP_Query();
+		$query->set( 'orderby', 'date' );
+
+		$prev_screen = $GLOBALS['current_screen'] ?? null;
+		$GLOBALS['current_screen'] = new class() {
+			// phpcs:ignore
+			public function in_admin( string $type = '' ): bool { return '' === $type || 'site' === $type; }
+		};
+		$feature->sort_by_c2pa_column( $query );
+		$GLOBALS['current_screen'] = $prev_screen;
+
+		$this->assertSame( '', $query->get( 'meta_key' ) );
+
+		delete_option( 'wpai_features_enabled' );
+		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
+	}
+
+	/**
 	 * print_column_styles() outputs a style block when enabled and nothing when disabled.
 	 */
 	public function test_print_column_styles_enabled_and_disabled(): void {

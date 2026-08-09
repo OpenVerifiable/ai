@@ -40,6 +40,19 @@ class C2pa_Monitor extends Abstract_Feature {
 	public const POSTMETA_KEY = '_wpai_monitor_record';
 
 	/**
+	 * Postmeta key used for sortable column ordering.
+	 *
+	 * Stores a single integer: 1 = credentials present, 0 = absent.
+	 * Written alongside POSTMETA_KEY so the Media Library can ORDER BY it.
+	 * Not written when no scan record exists (unsupported MIME / pre-existing upload).
+	 *
+	 * @since x.x.x
+	 *
+	 * @var string
+	 */
+	public const SORT_META_KEY = '_wpai_c2pa_present';
+
+	/**
 	 * Schema version for the postmeta record. Increment on breaking changes.
 	 *
 	 * @since x.x.x
@@ -105,6 +118,8 @@ class C2pa_Monitor extends Abstract_Feature {
 		add_filter( 'manage_upload_columns', array( $this, 'add_media_column' ) );
 		add_action( 'manage_media_custom_column', array( $this, 'render_media_column' ), 10, 2 );
 		add_action( 'admin_head-upload.php', array( $this, 'print_column_styles' ) );
+		add_filter( 'manage_upload_sortable_columns', array( $this, 'register_sortable_column' ) );
+		add_action( 'pre_get_posts', array( $this, 'sort_by_c2pa_column' ) );
 	}
 
 	/**
@@ -205,6 +220,63 @@ class C2pa_Monitor extends Abstract_Feature {
 				. esc_html__( 'No credentials', 'ai' )
 				. '</span>';
 		}
+	}
+
+	/**
+	 * Marks the Content Credentials column as sortable.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param array<string, string|array<int, string|bool>> $columns Sortable columns map.
+	 * @return array<string, string|array<int, string|bool>>
+	 */
+	public function register_sortable_column( array $columns ): array {
+		if ( ! $this->is_enabled() ) {
+			return $columns;
+		}
+		// Second element `true` means the initial click sorts descending (credentials first).
+		$columns['wpai_c2pa'] = array( 'wpai_c2pa', true );
+		return $columns;
+	}
+
+	/**
+	 * Modifies the Media Library query when sorting by the Content Credentials column.
+	 *
+	 * Attachments with credentials (sort key = 1) appear first on a descending
+	 * sort; those with no credentials (0) come next; unscanned attachments
+	 * (no sort meta row) appear last via a separate JOIN.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param \WP_Query $query The current query.
+	 * @return void
+	 */
+	public function sort_by_c2pa_column( \WP_Query $query ): void {
+		if ( ! $this->is_enabled() ) {
+			return;
+		}
+
+		if ( ! is_admin() || 'wpai_c2pa' !== $query->get( 'orderby' ) ) {
+			return;
+		}
+
+		$query->set( 'meta_key', self::SORT_META_KEY );
+		$query->set( 'orderby', 'meta_value_num' );
+		// Include attachments that have no sort meta (unscanned).
+		$query->set(
+			'meta_query',
+			array(
+				'relation' => 'OR',
+				array(
+					'key'     => self::SORT_META_KEY,
+					'compare' => 'EXISTS',
+				),
+				array(
+					'key'     => self::SORT_META_KEY,
+					'compare' => 'NOT EXISTS',
+				),
+			)
+		);
 	}
 
 	/**

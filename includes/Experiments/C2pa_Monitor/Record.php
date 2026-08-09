@@ -70,7 +70,16 @@ class Record {
 			return false;
 		}
 
-		return false !== update_post_meta( $attachment_id, C2pa_Monitor::POSTMETA_KEY, wp_slash( $encoded ) );
+		$stored = false !== update_post_meta( $attachment_id, C2pa_Monitor::POSTMETA_KEY, wp_slash( $encoded ) );
+
+		// Write a lightweight sort key so the Media Library column can ORDER BY.
+		update_post_meta(
+			$attachment_id,
+			C2pa_Monitor::SORT_META_KEY,
+			isset( $normalized['c2pa']['present'] ) && $normalized['c2pa']['present'] ? 1 : 0
+		);
+
+		return $stored;
 	}
 
 	/**
