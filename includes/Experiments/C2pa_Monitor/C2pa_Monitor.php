@@ -256,7 +256,7 @@ class C2pa_Monitor extends Abstract_Feature {
 			return;
 		}
 
-		if ( ! is_admin() || 'wpai_c2pa' !== $query->get( 'orderby' ) ) {
+		if ( ! is_admin() || ! $query->is_main_query() || 'wpai_c2pa' !== $query->get( 'orderby' ) ) {
 			return;
 		}
 

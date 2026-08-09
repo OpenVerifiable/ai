@@ -496,21 +496,27 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
 		$feature = new C2pa_Monitor();
 
-		$query = new \WP_Query();
-		$query->set( 'orderby', 'wpai_c2pa' );
+		// Use the global $wp_query so is_main_query() returns true.
+		global $wp_query;
+		$prev_orderby  = $wp_query->get( 'orderby' );
+		$prev_meta_key = $wp_query->get( 'meta_key' );
+		$wp_query->set( 'orderby', 'wpai_c2pa' );
 
-		// Simulate is_admin() context.
-		// Simulate is_admin() = true by setting the global screen to a minimal mock.
+		// Simulate is_admin() = true via the global screen mock.
 		$prev_screen = $GLOBALS['current_screen'] ?? null;
 		$GLOBALS['current_screen'] = new class() {
 			// phpcs:ignore
 			public function in_admin( string $type = '' ): bool { return '' === $type || 'site' === $type; }
 		};
-		$feature->sort_by_c2pa_column( $query );
+		$feature->sort_by_c2pa_column( $wp_query );
 		$GLOBALS['current_screen'] = $prev_screen;
 
-		$this->assertSame( C2pa_Monitor::SORT_META_KEY, $query->get( 'meta_key' ) );
-		$this->assertSame( 'meta_value_num', $query->get( 'orderby' ) );
+		$this->assertSame( C2pa_Monitor::SORT_META_KEY, $wp_query->get( 'meta_key' ) );
+		$this->assertSame( 'meta_value_num', $wp_query->get( 'orderby' ) );
+
+		// Restore global query state.
+		$wp_query->set( 'orderby', $prev_orderby );
+		$wp_query->set( 'meta_key', $prev_meta_key );
 
 		delete_option( 'wpai_features_enabled' );
 		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
@@ -524,18 +530,23 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
 		$feature = new C2pa_Monitor();
 
-		$query = new \WP_Query();
-		$query->set( 'orderby', 'date' );
+		global $wp_query;
+		$prev_orderby  = $wp_query->get( 'orderby' );
+		$prev_meta_key = $wp_query->get( 'meta_key' );
+		$wp_query->set( 'orderby', 'date' );
 
 		$prev_screen = $GLOBALS['current_screen'] ?? null;
 		$GLOBALS['current_screen'] = new class() {
 			// phpcs:ignore
 			public function in_admin( string $type = '' ): bool { return '' === $type || 'site' === $type; }
 		};
-		$feature->sort_by_c2pa_column( $query );
+		$feature->sort_by_c2pa_column( $wp_query );
 		$GLOBALS['current_screen'] = $prev_screen;
 
-		$this->assertSame( '', $query->get( 'meta_key' ) );
+		// meta_key should be untouched.
+		$this->assertSame( $prev_meta_key, $wp_query->get( 'meta_key' ) );
+
+		$wp_query->set( 'orderby', $prev_orderby );
 
 		delete_option( 'wpai_features_enabled' );
 		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
