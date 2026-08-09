@@ -160,7 +160,7 @@ class C2pa_Monitor extends Abstract_Feature {
 		if ( ! $this->is_enabled() ) {
 			return $columns;
 		}
-		$columns['wpai_c2pa'] = __( 'C2PA', 'ai' );
+		$columns['wpai_c2pa'] = __( 'Content Credentials', 'ai' );
 		return $columns;
 	}
 

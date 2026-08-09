@@ -367,7 +367,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( $feature_opt, true );
 		$with = ( new C2pa_Monitor() )->add_media_column( $base );
 		$this->assertArrayHasKey( 'wpai_c2pa', $with );
-		$this->assertSame( 'C2PA', $with['wpai_c2pa'] );
+		$this->assertSame( 'Content Credentials', $with['wpai_c2pa'] );
 
 		// Disabled: turn off the per-feature option.
 		update_option( $feature_opt, false );
