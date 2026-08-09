@@ -104,6 +104,48 @@ class C2pa_Monitor extends Abstract_Feature {
 		add_filter( 'manage_media_columns', array( $this, 'add_media_column' ) );
 		add_filter( 'manage_upload_columns', array( $this, 'add_media_column' ) );
 		add_action( 'manage_media_custom_column', array( $this, 'render_media_column' ), 10, 2 );
+		add_action( 'admin_head-upload.php', array( $this, 'print_column_styles' ) );
+	}
+
+	/**
+	 * Prints the CSS needed for the instant hover tooltip on the C2PA column.
+	 *
+	 * Only output on the Media Library screen (admin_head-upload.php) and only
+	 * when the experiment is enabled.
+	 *
+	 * @since x.x.x
+	 *
+	 * @return void
+	 */
+	public function print_column_styles(): void {
+		if ( ! $this->is_enabled() ) {
+			return;
+		}
+		?>
+		<style>
+		[data-wpai-tooltip]{position:relative}
+		[data-wpai-tooltip]::after{
+			content:attr(data-wpai-tooltip);
+			display:none;
+			position:absolute;
+			bottom:calc(100% + 6px);
+			left:50%;
+			transform:translateX(-50%);
+			background:#1d2327;
+			color:#fff;
+			font-size:12px;
+			line-height:1.4;
+			padding:5px 8px;
+			border-radius:3px;
+			white-space:normal;
+			width:200px;
+			text-align:center;
+			z-index:9999;
+			pointer-events:none;
+		}
+		[data-wpai-tooltip]:hover::after{display:block}
+		</style>
+		<?php
 	}
 
 	/**
@@ -155,11 +197,11 @@ class C2pa_Monitor extends Abstract_Feature {
 		}
 
 		if ( $record['c2pa']['present'] ) {
-			echo '<span style="color:#2271b1" title="' . esc_attr__( 'Unverified — C2PA Content Credentials were detected in this file but have not been validated against its content.', 'ai' ) . '">'
+			echo '<span style="color:#2271b1" data-wpai-tooltip="' . esc_attr__( 'Unverified — credentials were detected but have not been validated against this file\'s content.', 'ai' ) . '">'
 				. '&#10003; ' . esc_html__( 'Credentials', 'ai' )
 				. '</span>';
 		} else {
-			echo '<span style="color:#666" title="' . esc_attr__( 'No C2PA Content Credentials were detected in this file.', 'ai' ) . '">'
+			echo '<span style="color:#666" data-wpai-tooltip="' . esc_attr__( 'No C2PA Content Credentials were detected in this file.', 'ai' ) . '">'
 				. esc_html__( 'No credentials', 'ai' )
 				. '</span>';
 		}
