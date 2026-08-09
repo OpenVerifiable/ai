@@ -121,10 +121,10 @@ Synthetic fixtures are generated at runtime by `tests/Integration/Includes/Exper
 
 When the experiment is enabled a **C2PA** column appears in the Media Library list view for each attachment:
 
-| Value | Meaning |
+| Value | Tooltip / Meaning |
 |---|---|
-| ✓ Credentials | A C2PA manifest was found in the original image. |
-| No credentials | The image was scanned; no C2PA data was present. |
+| ✓ Credentials | *Unverified* — C2PA Content Credentials were detected in this file but have not been validated against its content. |
+| No credentials | No C2PA Content Credentials were detected in this file. |
 | — | No scan record exists (uploaded before the experiment was enabled, or a non-image MIME type). |
 
 ## Out of scope (this release)

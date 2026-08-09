@@ -155,11 +155,11 @@ class C2pa_Monitor extends Abstract_Feature {
 		}
 
 		if ( $record['c2pa']['present'] ) {
-			echo '<span style="color:#2271b1" title="' . esc_attr__( 'C2PA Content Credentials found', 'ai' ) . '">'
+			echo '<span style="color:#2271b1" title="' . esc_attr__( 'Unverified — C2PA Content Credentials were detected in this file but have not been validated against its content.', 'ai' ) . '">'
 				. '&#10003; ' . esc_html__( 'Credentials', 'ai' )
 				. '</span>';
 		} else {
-			echo '<span style="color:#666" title="' . esc_attr__( 'No C2PA Content Credentials detected', 'ai' ) . '">'
+			echo '<span style="color:#666" title="' . esc_attr__( 'No C2PA Content Credentials were detected in this file.', 'ai' ) . '">'
 				. esc_html__( 'No credentials', 'ai' )
 				. '</span>';
 		}
