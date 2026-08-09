@@ -351,4 +351,79 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$this->assertNotEmpty( $record['errors'] );
 		$this->assertSame( 'resolve_path', $record['errors'][0]['stage'] );
 	}
+
+	/**
+	 * add_media_column() appends the C2PA column when the feature is enabled,
+	 * and leaves columns unchanged when disabled.
+	 */
+	public function test_add_media_column_when_enabled_and_disabled(): void {
+		$base         = array( 'title' => 'File' );
+		$global_opt   = 'wpai_features_enabled';
+		$feature_opt  = 'wpai_feature_c2pa-monitor_enabled';
+
+		// Enabled: set both options then construct a fresh instance so the
+		// enabled_cache is primed with the correct value.
+		update_option( $global_opt, true );
+		update_option( $feature_opt, true );
+		$with = ( new C2pa_Monitor() )->add_media_column( $base );
+		$this->assertArrayHasKey( 'wpai_c2pa', $with );
+		$this->assertSame( 'C2PA', $with['wpai_c2pa'] );
+
+		// Disabled: turn off the per-feature option.
+		update_option( $feature_opt, false );
+		$without = ( new C2pa_Monitor() )->add_media_column( $base );
+		$this->assertArrayNotHasKey( 'wpai_c2pa', $without );
+
+		delete_option( $global_opt );
+		delete_option( $feature_opt );
+	}
+
+	/**
+	 * render_media_column() outputs the correct markup for each record state.
+	 */
+	public function test_render_media_column_states(): void {
+		$global_opt  = 'wpai_features_enabled';
+		$feature_opt = 'wpai_feature_c2pa-monitor_enabled';
+		update_option( $global_opt, true );
+		update_option( $feature_opt, true );
+		$feature = new C2pa_Monitor();
+
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+
+		// No record yet: should show dash.
+		ob_start();
+		$feature->render_media_column( 'wpai_c2pa', (int) $attachment_id );
+		$out = ob_get_clean();
+		$this->assertStringContainsString( '—', $out );
+
+		// present=true.
+		$record_present = array(
+			'@context'       => array( 'https://schema.org/' ),
+			'schema_version' => 1,
+			'captured_at'    => '2026-01-01T00:00:00Z',
+			'duration_ms'    => 0,
+			'source'         => array(),
+			'traditional'    => array(),
+			'c2pa'           => array( 'present' => true, 'format' => 'jpeg' ),
+			'errors'         => array(),
+		);
+		update_post_meta( (int) $attachment_id, C2pa_Monitor::POSTMETA_KEY, wp_json_encode( $record_present ) );
+		ob_start();
+		$feature->render_media_column( 'wpai_c2pa', (int) $attachment_id );
+		$out = ob_get_clean();
+		$this->assertStringContainsString( 'Credentials', $out );
+		$this->assertStringContainsString( '&#10003;', $out );
+
+		// present=false.
+		$record_absent         = $record_present;
+		$record_absent['c2pa'] = array( 'present' => false, 'format' => 'jpeg' );
+		update_post_meta( (int) $attachment_id, C2pa_Monitor::POSTMETA_KEY, wp_json_encode( $record_absent ) );
+		ob_start();
+		$feature->render_media_column( 'wpai_c2pa', (int) $attachment_id );
+		$out = ob_get_clean();
+		$this->assertStringContainsString( 'No credentials', $out );
+
+		delete_option( $global_opt );
+		delete_option( $feature_opt );
+	}
 }

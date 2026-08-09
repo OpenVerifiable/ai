@@ -117,10 +117,20 @@ C2PA manifests in the wild can run into the hundreds of kilobytes. Persisting th
 
 Synthetic fixtures are generated at runtime by `tests/Integration/Includes/Experiments/C2pa_Monitor/Fixtures.php`. They are just well-formed enough at the container level to drive the detector and are **not** valid signed C2PA assets. Generating them at runtime keeps binary blobs out of the repo and avoids any third-party fixture licensing.
 
+## Media Library column
+
+When the experiment is enabled a **C2PA** column appears in the Media Library list view for each attachment:
+
+| Value | Meaning |
+|---|---|
+| ✓ Credentials | A C2PA manifest was found in the original image. |
+| No credentials | The image was scanned; no C2PA data was present. |
+| — | No scan record exists (uploaded before the experiment was enabled, or a non-image MIME type). |
+
 ## Out of scope (this release)
 
 - JUMBF box reader and CBOR decoder.
 - Populating `c2pa.decoded` with claim generator / digital source type / action history.
-- Admin UI, media library badge, icon overlay.
+- Icon overlay in the media grid view.
 - Cryptographic verification of manifests.
 - Preserving manifests through WordPress's GD / Imagick subsize pipeline.

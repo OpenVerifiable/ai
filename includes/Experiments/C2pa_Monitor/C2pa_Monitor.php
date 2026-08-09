@@ -101,6 +101,68 @@ class C2pa_Monitor extends Abstract_Feature {
 	 */
 	public function register(): void {
 		add_action( 'add_attachment', array( $this, 'capture_for_attachment' ), 20, 1 );
+		add_filter( 'manage_media_columns', array( $this, 'add_media_column' ) );
+		add_filter( 'manage_upload_columns', array( $this, 'add_media_column' ) );
+		add_action( 'manage_media_custom_column', array( $this, 'render_media_column' ), 10, 2 );
+	}
+
+	/**
+	 * Registers the C2PA status column in the Media Library list table.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param array<string, string> $columns Existing columns.
+	 * @return array<string, string>
+	 */
+	public function add_media_column( array $columns ): array {
+		if ( ! $this->is_enabled() ) {
+			return $columns;
+		}
+		$columns['wpai_c2pa'] = __( 'C2PA', 'ai' );
+		return $columns;
+	}
+
+	/**
+	 * Renders the C2PA status cell for the given attachment.
+	 *
+	 * Outputs one of three states:
+	 * - "✓ Credentials" when a C2PA manifest was detected.
+	 * - "No credentials" when the attachment was scanned and none were found.
+	 * - "—" when no scan record exists (e.g. uploaded before the experiment
+	 *   was enabled, or a non-image MIME type).
+	 *
+	 * @since x.x.x
+	 *
+	 * @param string $column_name The column being rendered.
+	 * @param int    $post_id     The attachment post ID.
+	 * @return void
+	 */
+	public function render_media_column( string $column_name, int $post_id ): void {
+		if ( 'wpai_c2pa' !== $column_name || ! $this->is_enabled() ) {
+			return;
+		}
+
+		$raw = get_post_meta( $post_id, self::POSTMETA_KEY, true );
+		if ( ! is_string( $raw ) || '' === $raw ) {
+			echo '<span aria-label="' . esc_attr__( 'Not scanned', 'ai' ) . '">—</span>';
+			return;
+		}
+
+		$record = json_decode( $raw, true );
+		if ( ! is_array( $record ) || ! isset( $record['c2pa']['present'] ) ) {
+			echo '<span aria-label="' . esc_attr__( 'Not scanned', 'ai' ) . '">—</span>';
+			return;
+		}
+
+		if ( $record['c2pa']['present'] ) {
+			echo '<span style="color:#2271b1" title="' . esc_attr__( 'C2PA Content Credentials found', 'ai' ) . '">'
+				. '&#10003; ' . esc_html__( 'Credentials', 'ai' )
+				. '</span>';
+		} else {
+			echo '<span style="color:#666" title="' . esc_attr__( 'No C2PA Content Credentials detected', 'ai' ) . '">'
+				. esc_html__( 'No credentials', 'ai' )
+				. '</span>';
+		}
 	}
 
 	/**
