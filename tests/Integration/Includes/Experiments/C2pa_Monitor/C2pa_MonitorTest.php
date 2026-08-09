@@ -426,4 +426,67 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		delete_option( $global_opt );
 		delete_option( $feature_opt );
 	}
+
+	/**
+	 * render_media_column() is a no-op for unrelated column names.
+	 */
+	public function test_render_media_column_ignores_other_columns(): void {
+		update_option( 'wpai_features_enabled', true );
+		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
+		$feature = new C2pa_Monitor();
+
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+
+		ob_start();
+		$feature->render_media_column( 'title', (int) $attachment_id );
+		$out = ob_get_clean();
+		$this->assertSame( '', $out );
+
+		delete_option( 'wpai_features_enabled' );
+		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
+	}
+
+	/**
+	 * render_media_column() shows the dash when the stored meta is malformed JSON.
+	 */
+	public function test_render_media_column_handles_malformed_meta(): void {
+		update_option( 'wpai_features_enabled', true );
+		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
+		$feature = new C2pa_Monitor();
+
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		update_post_meta( (int) $attachment_id, C2pa_Monitor::POSTMETA_KEY, 'not-valid-json' );
+
+		ob_start();
+		$feature->render_media_column( 'wpai_c2pa', (int) $attachment_id );
+		$out = ob_get_clean();
+		$this->assertStringContainsString( '—', $out );
+
+		delete_option( 'wpai_features_enabled' );
+		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
+	}
+
+	/**
+	 * print_column_styles() outputs a style block when enabled and nothing when disabled.
+	 */
+	public function test_print_column_styles_enabled_and_disabled(): void {
+		// Enabled.
+		update_option( 'wpai_features_enabled', true );
+		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
+		ob_start();
+		( new C2pa_Monitor() )->print_column_styles();
+		$out = ob_get_clean();
+		$this->assertStringContainsString( 'data-wpai-tooltip', $out );
+		$this->assertStringContainsString( '<style>', $out );
+
+		// Disabled: no output.
+		update_option( 'wpai_feature_c2pa-monitor_enabled', false );
+		ob_start();
+		( new C2pa_Monitor() )->print_column_styles();
+		$out = ob_get_clean();
+		$this->assertSame( '', $out );
+
+		delete_option( 'wpai_features_enabled' );
+		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
+	}
 }
