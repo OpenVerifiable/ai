@@ -413,6 +413,8 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$out = ob_get_clean();
 		$this->assertStringContainsString( 'Credentials', $out );
 		$this->assertStringContainsString( '&#10003;', $out );
+		$this->assertStringContainsString( 'verify.contentauthenticity.org', $out );
+		$this->assertStringContainsString( 'target="_blank"', $out );
 
 		// present=false.
 		$record_absent         = $record_present;
