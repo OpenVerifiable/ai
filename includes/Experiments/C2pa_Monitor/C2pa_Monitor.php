@@ -212,19 +212,20 @@ class C2pa_Monitor extends Abstract_Feature {
 		}
 
 		if ( $record['c2pa']['present'] ) {
-			$media_url   = wp_get_attachment_url( $post_id );
-			$verify_url  = $media_url
+			$media_url  = wp_get_attachment_url( $post_id );
+			$verify_url = $media_url
 				? 'https://verify.contentauthenticity.org/?=' . rawurlencode( (string) $media_url )
 				: '';
-			$tooltip     = esc_attr__( 'Unverified — credentials were detected but have not been validated. Click to verify on the Content Authenticity Initiative site.', 'ai' );
 
 			if ( $verify_url ) {
 				echo '<a href="' . esc_url( $verify_url ) . '" target="_blank" rel="noopener noreferrer"'
-					. ' style="color:#2271b1;text-decoration:none" data-wpai-tooltip="' . $tooltip . '">'
+					. ' style="color:#2271b1;text-decoration:none"'
+					. ' data-wpai-tooltip="' . esc_attr__( 'Unverified — credentials were detected but have not been validated. Click to verify on the Content Authenticity Initiative site.', 'ai' ) . '">'
 					. '&#10003; ' . esc_html__( 'Credentials', 'ai' )
 					. '</a>';
 			} else {
-				echo '<span style="color:#2271b1" data-wpai-tooltip="' . $tooltip . '">'
+				echo '<span style="color:#2271b1"'
+					. ' data-wpai-tooltip="' . esc_attr__( 'Unverified — credentials were detected but have not been validated. Click to verify on the Content Authenticity Initiative site.', 'ai' ) . '">'
 					. '&#10003; ' . esc_html__( 'Credentials', 'ai' )
 					. '</span>';
 			}
