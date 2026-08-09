@@ -396,7 +396,9 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$out = ob_get_clean();
 		$this->assertStringContainsString( '—', $out );
 
-		// present=true.
+		// present=true: wp_get_attachment_url() always returns a URL for a valid
+		// attachment post (even without _wp_attached_file it uses ?attachment_id=X),
+		// so the verify link is always rendered.
 		$record_present = array(
 			'@context'       => array( 'https://schema.org/' ),
 			'schema_version' => 1,
