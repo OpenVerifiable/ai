@@ -212,23 +212,11 @@ class C2pa_Monitor extends Abstract_Feature {
 		}
 
 		if ( $record['c2pa']['present'] ) {
-			$media_url  = wp_get_attachment_url( $post_id );
-			$verify_url = $media_url
-				? 'https://verify.contentauthenticity.org/?=' . rawurlencode( (string) $media_url )
-				: '';
-
-			if ( $verify_url ) {
-				echo '<a href="' . esc_url( $verify_url ) . '" target="_blank" rel="noopener noreferrer"'
-					. ' style="color:#2271b1;text-decoration:none"'
-					. ' data-wpai-tooltip="' . esc_attr__( 'Unverified — credentials were detected but have not been validated. Click to verify on the Content Authenticity Initiative site.', 'ai' ) . '">'
-					. '&#10003; ' . esc_html__( 'Credentials', 'ai' )
-					. '</a>';
-			} else {
-				echo '<span style="color:#2271b1"'
-					. ' data-wpai-tooltip="' . esc_attr__( 'Unverified — credentials were detected but have not been validated. Click to verify on the Content Authenticity Initiative site.', 'ai' ) . '">'
-					. '&#10003; ' . esc_html__( 'Credentials', 'ai' )
-					. '</span>';
-			}
+			echo '<a href="https://verify.contentauthenticity.org/" target="_blank" rel="noopener noreferrer"'
+				. ' style="color:#2271b1;text-decoration:none"'
+				. ' data-wpai-tooltip="' . esc_attr__( 'Unverified — credentials were detected but have not been validated. Click to open the Content Authenticity Initiative verify tool.', 'ai' ) . '">'
+				. '&#10003; ' . esc_html__( 'Credentials', 'ai' )
+				. '</a>';
 		} else {
 			echo '<span style="color:#666" data-wpai-tooltip="' . esc_attr__( 'No C2PA Content Credentials were detected in this file.', 'ai' ) . '">'
 				. esc_html__( 'No credentials', 'ai' )
