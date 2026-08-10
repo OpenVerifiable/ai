@@ -6,7 +6,7 @@ Read-only experiment that detects [C2PA Content Credentials](https://c2pa.org/) 
 
 ## Status
 
-Experimental. No UI, no cryptographic verification, no JUMBF / CBOR decoding in this pass; richer claim summaries and UI are deferred. The feature was assembled in reviewable layers (register → record → detection → reader/sidecar → hook).
+Experimental. Cryptographic verification and full JUMBF/CBOR decoding are deferred. The feature was assembled in reviewable layers (register → record → detection → reader/sidecar → hook → UI).
 
 ## What it does
 
@@ -119,18 +119,27 @@ Synthetic fixtures are generated at runtime by `tests/Integration/Includes/Exper
 
 ## Media Library column
 
-When the experiment is enabled a **C2PA** column appears in the Media Library list view for each attachment:
+When the experiment is enabled a **Content Credentials** column appears in the Media Library list view for each attachment:
 
 | Value | Tooltip / Meaning |
 |---|---|
-| ✓ Credentials | *Unverified* — C2PA Content Credentials were detected in this file but have not been validated against its content. |
+| ✓ Credentials | *Unverified* — C2PA Content Credentials were detected in this file but have not been validated against its content. Links to the [CAI Verify tool](https://verify.contentauthenticity.org/) with the attachment URL pre-filled as the `source` parameter so the user can run a full cryptographic check in one click. |
 | No credentials | No C2PA Content Credentials were detected in this file. |
 | — | No scan record exists (uploaded before the experiment was enabled, or a non-image MIME type). |
+
+The column is sortable: clicking the header sorts credentials-first (descending). Attachments with no scan record appear at the bottom.
+
+## Attachment Details and Edit Media screens
+
+The same three-state **Content Credentials** field is surfaced on two additional admin screens:
+
+- **Attachment details** (`upload.php?item=<id>` and the media modal) — rendered via the `attachment_fields_to_edit` filter as a read-only HTML field labelled "Content Credentials".
+- **Edit Media** (`post.php?post=<id>&action=edit`) — rendered in a "Content Credentials" meta box in the side column via `add_meta_boxes_attachment`.
 
 ## Out of scope (this release)
 
 - JUMBF box reader and CBOR decoder.
 - Populating `c2pa.decoded` with claim generator / digital source type / action history.
 - Icon overlay in the media grid view.
-- Cryptographic verification of manifests.
+- Cryptographic verification of manifests (the verify link delegates this to the CAI Verify tool).
 - Preserving manifests through WordPress's GD / Imagick subsize pipeline.

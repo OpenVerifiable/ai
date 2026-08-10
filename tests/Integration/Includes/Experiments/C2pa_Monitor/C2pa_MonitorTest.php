@@ -415,7 +415,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$out = ob_get_clean();
 		$this->assertStringContainsString( 'Credentials', $out );
 		$this->assertStringContainsString( '&#10003;', $out );
-		$this->assertStringContainsString( 'https://verify.contentauthenticity.org/', $out );
+		$this->assertStringContainsString( 'verify.contentauthenticity.org', $out );
 		$this->assertStringContainsString( 'target="_blank"', $out );
 
 		// present=false.
@@ -575,6 +575,179 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		( new C2pa_Monitor() )->print_column_styles();
 		$out = ob_get_clean();
 		$this->assertSame( '', $out );
+
+		delete_option( 'wpai_features_enabled' );
+		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
+	}
+
+	/**
+	 * add_attachment_fields() appends a Content Credentials field when enabled,
+	 * and leaves the fields array unchanged when disabled.
+	 */
+	public function test_add_attachment_fields_when_enabled_and_disabled(): void {
+		$global_opt  = 'wpai_features_enabled';
+		$feature_opt = 'wpai_feature_c2pa-monitor_enabled';
+
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		$post          = get_post( (int) $attachment_id );
+		$this->assertInstanceOf( \WP_Post::class, $post );
+
+		// Enabled: field must appear with the expected label.
+		update_option( $global_opt, true );
+		update_option( $feature_opt, true );
+		$fields = ( new C2pa_Monitor() )->add_attachment_fields( array(), $post );
+		$this->assertArrayHasKey( 'wpai_c2pa', $fields );
+		$this->assertSame( 'Content Credentials', $fields['wpai_c2pa']['label'] );
+		$this->assertSame( 'html', $fields['wpai_c2pa']['input'] );
+		$this->assertStringContainsString( '—', $fields['wpai_c2pa']['html'] );
+
+		// Disabled: no field added.
+		update_option( $feature_opt, false );
+		$fields = ( new C2pa_Monitor() )->add_attachment_fields( array(), $post );
+		$this->assertArrayNotHasKey( 'wpai_c2pa', $fields );
+
+		delete_option( $global_opt );
+		delete_option( $feature_opt );
+	}
+
+	/**
+	 * add_attachment_fields() shows the correct status HTML for each record state.
+	 */
+	public function test_add_attachment_fields_status_states(): void {
+		update_option( 'wpai_features_enabled', true );
+		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
+		$feature = new C2pa_Monitor();
+
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		$post          = get_post( (int) $attachment_id );
+		$this->assertInstanceOf( \WP_Post::class, $post );
+
+		// No record: dash.
+		$fields = $feature->add_attachment_fields( array(), $post );
+		$this->assertStringContainsString( '—', $fields['wpai_c2pa']['html'] );
+
+		// present=true: verify link.
+		$record = array(
+			'@context'       => array( 'https://schema.org/' ),
+			'schema_version' => 1,
+			'captured_at'    => '2026-01-01T00:00:00Z',
+			'duration_ms'    => 0,
+			'source'         => array(),
+			'traditional'    => array(),
+			'c2pa'           => array( 'present' => true, 'format' => 'jpeg' ),
+			'errors'         => array(),
+		);
+		update_post_meta( (int) $attachment_id, C2pa_Monitor::POSTMETA_KEY, wp_json_encode( $record ) );
+		$fields = $feature->add_attachment_fields( array(), $post );
+		$html   = $fields['wpai_c2pa']['html'];
+		$this->assertStringContainsString( 'Credentials', $html );
+		$this->assertStringContainsString( 'verify.contentauthenticity.org', $html );
+
+		// present=false: "No credentials".
+		$record['c2pa'] = array( 'present' => false, 'format' => 'jpeg' );
+		update_post_meta( (int) $attachment_id, C2pa_Monitor::POSTMETA_KEY, wp_json_encode( $record ) );
+		$fields = $feature->add_attachment_fields( array(), $post );
+		$this->assertStringContainsString( 'No credentials', $fields['wpai_c2pa']['html'] );
+
+		delete_option( 'wpai_features_enabled' );
+		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
+	}
+
+	/**
+	 * add_attachment_meta_box() registers a meta box when enabled and skips
+	 * registration when disabled.
+	 */
+	public function test_add_attachment_meta_box_when_enabled_and_disabled(): void {
+		global $wp_meta_boxes;
+
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		$post          = get_post( (int) $attachment_id );
+		$this->assertInstanceOf( \WP_Post::class, $post );
+
+		// Enabled: meta box should be registered.
+		update_option( 'wpai_features_enabled', true );
+		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
+		( new C2pa_Monitor() )->add_attachment_meta_box( $post );
+		$this->assertArrayHasKey( 'wpai-c2pa-monitor', $wp_meta_boxes['attachment']['side']['default'] ?? array() );
+
+		// Disabled: reset and confirm nothing is registered.
+		unset( $wp_meta_boxes['attachment']['side']['default']['wpai-c2pa-monitor'] );
+		update_option( 'wpai_feature_c2pa-monitor_enabled', false );
+		( new C2pa_Monitor() )->add_attachment_meta_box( $post );
+		$this->assertArrayNotHasKey( 'wpai-c2pa-monitor', $wp_meta_boxes['attachment']['side']['default'] ?? array() );
+
+		delete_option( 'wpai_features_enabled' );
+		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
+	}
+
+	/**
+	 * render_attachment_meta_box() outputs the status HTML inside a <p> tag.
+	 */
+	public function test_render_attachment_meta_box_output(): void {
+		update_option( 'wpai_features_enabled', true );
+		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
+		$feature = new C2pa_Monitor();
+
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		$post          = get_post( (int) $attachment_id );
+		$this->assertInstanceOf( \WP_Post::class, $post );
+
+		// No record: should show dash inside <p>.
+		ob_start();
+		$feature->render_attachment_meta_box( $post );
+		$out = ob_get_clean();
+		$this->assertStringContainsString( '<p>', $out );
+		$this->assertStringContainsString( '—', $out );
+
+		// present=true: verify link inside <p>.
+		$record = array(
+			'@context'       => array( 'https://schema.org/' ),
+			'schema_version' => 1,
+			'captured_at'    => '2026-01-01T00:00:00Z',
+			'duration_ms'    => 0,
+			'source'         => array(),
+			'traditional'    => array(),
+			'c2pa'           => array( 'present' => true, 'format' => 'jpeg' ),
+			'errors'         => array(),
+		);
+		update_post_meta( (int) $attachment_id, C2pa_Monitor::POSTMETA_KEY, wp_json_encode( $record ) );
+		ob_start();
+		$feature->render_attachment_meta_box( $post );
+		$out = ob_get_clean();
+		$this->assertStringContainsString( 'verify.contentauthenticity.org', $out );
+		$this->assertStringContainsString( 'Credentials', $out );
+
+		delete_option( 'wpai_features_enabled' );
+		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
+	}
+
+	/**
+	 * The verify link in the "Credentials" state passes the attachment URL
+	 * as the `source` query parameter.
+	 */
+	public function test_verify_link_includes_source_param(): void {
+		update_option( 'wpai_features_enabled', true );
+		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
+		$feature = new C2pa_Monitor();
+
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		$record        = array(
+			'@context'       => array( 'https://schema.org/' ),
+			'schema_version' => 1,
+			'captured_at'    => '2026-01-01T00:00:00Z',
+			'duration_ms'    => 0,
+			'source'         => array(),
+			'traditional'    => array(),
+			'c2pa'           => array( 'present' => true, 'format' => 'jpeg' ),
+			'errors'         => array(),
+		);
+		update_post_meta( (int) $attachment_id, C2pa_Monitor::POSTMETA_KEY, wp_json_encode( $record ) );
+
+		ob_start();
+		$feature->render_media_column( 'wpai_c2pa', (int) $attachment_id );
+		$out = ob_get_clean();
+		// The verify URL should carry a `source` query param.
+		$this->assertStringContainsString( 'source=', $out );
 
 		delete_option( 'wpai_features_enabled' );
 		delete_option( 'wpai_feature_c2pa-monitor_enabled' );

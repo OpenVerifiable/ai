@@ -120,6 +120,8 @@ class C2pa_Monitor extends Abstract_Feature {
 		add_action( 'admin_head-upload.php', array( $this, 'print_column_styles' ) );
 		add_filter( 'manage_upload_sortable_columns', array( $this, 'register_sortable_column' ) );
 		add_action( 'pre_get_posts', array( $this, 'sort_by_c2pa_column' ) );
+		add_filter( 'attachment_fields_to_edit', array( $this, 'add_attachment_fields' ), 10, 2 );
+		add_action( 'add_meta_boxes_attachment', array( $this, 'add_attachment_meta_box' ) );
 	}
 
 	/**
@@ -180,6 +182,50 @@ class C2pa_Monitor extends Abstract_Feature {
 	}
 
 	/**
+	 * Returns the HTML representing the C2PA status for the given attachment.
+	 *
+	 * Shared by render_media_column(), add_attachment_fields(), and
+	 * render_attachment_meta_box(). Returns one of three states:
+	 * - "✓ Credentials" (linked to the CAI verify tool) when a manifest was detected.
+	 * - "No credentials" when the attachment was scanned and none were found.
+	 * - "—" when no scan record exists (e.g. uploaded before the experiment
+	 *   was enabled, or a non-image MIME type).
+	 *
+	 * @since x.x.x
+	 *
+	 * @param int $post_id The attachment post ID.
+	 * @return string HTML fragment (already escaped).
+	 */
+	private function get_status_html( int $post_id ): string {
+		$raw = get_post_meta( $post_id, self::POSTMETA_KEY, true );
+		if ( ! is_string( $raw ) || '' === $raw ) {
+			return '<span aria-label="' . esc_attr__( 'Not scanned', 'ai' ) . '">—</span>';
+		}
+
+		$record = json_decode( $raw, true );
+		if ( ! is_array( $record ) || ! isset( $record['c2pa']['present'] ) ) {
+			return '<span aria-label="' . esc_attr__( 'Not scanned', 'ai' ) . '">—</span>';
+		}
+
+		if ( $record['c2pa']['present'] ) {
+			$verify_url  = 'https://verify.contentauthenticity.org/';
+			$attach_url  = wp_get_attachment_url( $post_id );
+			if ( $attach_url ) {
+				$verify_url = add_query_arg( 'source', rawurlencode( $attach_url ), $verify_url );
+			}
+			return '<a href="' . esc_url( $verify_url ) . '" target="_blank" rel="noopener noreferrer"'
+				. ' style="color:#2271b1;text-decoration:none"'
+				. ' data-wpai-tooltip="' . esc_attr__( 'Unverified — credentials were detected but have not been validated. Click to open the Content Authenticity Initiative verify tool.', 'ai' ) . '">'
+				. '&#10003; ' . esc_html__( 'Credentials', 'ai' )
+				. '</a>';
+		}
+
+		return '<span style="color:#666" data-wpai-tooltip="' . esc_attr__( 'No C2PA Content Credentials were detected in this file.', 'ai' ) . '">'
+			. esc_html__( 'No credentials', 'ai' )
+			. '</span>';
+	}
+
+	/**
 	 * Renders the C2PA status cell for the given attachment.
 	 *
 	 * Outputs one of three states:
@@ -198,30 +244,70 @@ class C2pa_Monitor extends Abstract_Feature {
 		if ( 'wpai_c2pa' !== $column_name || ! $this->is_enabled() ) {
 			return;
 		}
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- get_status_html() returns pre-escaped HTML.
+		echo $this->get_status_html( $post_id );
+	}
 
-		$raw = get_post_meta( $post_id, self::POSTMETA_KEY, true );
-		if ( ! is_string( $raw ) || '' === $raw ) {
-			echo '<span aria-label="' . esc_attr__( 'Not scanned', 'ai' ) . '">—</span>';
+	/**
+	 * Adds a Content Credentials field to the Attachment Details panel.
+	 *
+	 * Fires on the `attachment_fields_to_edit` filter, which populates fields
+	 * shown in the media modal and on the `upload.php?item=<id>` screen.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param array<string, mixed> $form_fields Existing form fields.
+	 * @param \WP_Post             $post        The attachment post object.
+	 * @return array<string, mixed>
+	 */
+	public function add_attachment_fields( array $form_fields, \WP_Post $post ): array {
+		if ( ! $this->is_enabled() ) {
+			return $form_fields;
+		}
+		$form_fields['wpai_c2pa'] = array(
+			'label' => __( 'Content Credentials', 'ai' ),
+			'input' => 'html',
+			'html'  => $this->get_status_html( $post->ID ),
+		);
+		return $form_fields;
+	}
+
+	/**
+	 * Registers the Content Credentials meta box on the Edit Media screen.
+	 *
+	 * Fires on the `add_meta_boxes_attachment` action, which runs when loading
+	 * the classic `post.php?post=<id>&action=edit` screen for an attachment.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param \WP_Post $post The attachment post object.
+	 * @return void
+	 */
+	public function add_attachment_meta_box( \WP_Post $post ): void {
+		if ( ! $this->is_enabled() ) {
 			return;
 		}
+		add_meta_box(
+			'wpai-c2pa-monitor',
+			__( 'Content Credentials', 'ai' ),
+			array( $this, 'render_attachment_meta_box' ),
+			'attachment',
+			'side',
+			'default'
+		);
+	}
 
-		$record = json_decode( $raw, true );
-		if ( ! is_array( $record ) || ! isset( $record['c2pa']['present'] ) ) {
-			echo '<span aria-label="' . esc_attr__( 'Not scanned', 'ai' ) . '">—</span>';
-			return;
-		}
-
-		if ( $record['c2pa']['present'] ) {
-			echo '<a href="https://verify.contentauthenticity.org/" target="_blank" rel="noopener noreferrer"'
-				. ' style="color:#2271b1;text-decoration:none"'
-				. ' data-wpai-tooltip="' . esc_attr__( 'Unverified — credentials were detected but have not been validated. Click to open the Content Authenticity Initiative verify tool.', 'ai' ) . '">'
-				. '&#10003; ' . esc_html__( 'Credentials', 'ai' )
-				. '</a>';
-		} else {
-			echo '<span style="color:#666" data-wpai-tooltip="' . esc_attr__( 'No C2PA Content Credentials were detected in this file.', 'ai' ) . '">'
-				. esc_html__( 'No credentials', 'ai' )
-				. '</span>';
-		}
+	/**
+	 * Renders the Content Credentials meta box on the Edit Media screen.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param \WP_Post $post The attachment post object.
+	 * @return void
+	 */
+	public function render_attachment_meta_box( \WP_Post $post ): void {
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- get_status_html() returns pre-escaped HTML.
+		echo '<p>' . $this->get_status_html( $post->ID ) . '</p>';
 	}
 
 	/**
