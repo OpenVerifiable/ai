@@ -25,12 +25,27 @@ The handler is wrapped in a `try / catch ( Throwable )` boundary and writes a re
 
 ## Key Hooks & Entry Points
 
-- `WordPress\AI\Experiments\C2pa_Monitor\C2pa_Monitor::register()`: hooks `capture_for_attachment()` to `add_attachment` at priority 20.
-- `C2pa_Monitor::capture_for_attachment()`: the fail-open capture boundary, gated by MIME on `image/jpeg`, `image/png`, and `image/webp`.
+**Capture pipeline**
+
+- `WordPress\AI\Experiments\C2pa_Monitor\C2pa_Monitor::register()`: wires all hooks below.
+- `add_attachment` (priority 20) → `capture_for_attachment()`: fail-open capture boundary, gated by MIME on `image/jpeg`, `image/png`, and `image/webp`.
 - `Format_Detector`: walks containers and returns a location descriptor (segments + total length) without reading payload bytes.
 - `Manifest_Reader`: streams the located bytes into a hash context and buffer, producing an immutable `Raw_Manifest` value object.
 - `Sidecar_Writer`: persists the bytes and ensures the sidecar directory + hardening files exist.
 - `Record`: normalizes the structured payload and persists it as JSON-encoded postmeta at `_wpai_monitor_record`.
+
+**Media Library UI**
+
+- `manage_media_columns` / `manage_upload_columns` → `add_media_column()`: registers the "Content Credentials" list table column.
+- `manage_media_custom_column` → `render_media_column()`: renders the three-state status badge with a CSS hover tooltip.
+- `manage_upload_sortable_columns` → `register_sortable_column()`: marks the column as sortable (descending by default).
+- `pre_get_posts` → `sort_by_c2pa_column()`: injects `meta_key` / `orderby` when sorting by the column.
+- `admin_head-upload.php` → `print_column_styles()`: prints the inline CSS for the hover tooltip.
+
+**Attachment Details / Edit Media UI**
+
+- `attachment_fields_to_edit` → `add_attachment_fields()`: adds a read-only "Content Credentials" field to the media modal and `upload.php?item=<id>` panel. `show_in_edit => false` suppresses it on the classic Edit Media screen where the meta box is used instead.
+- `add_meta_boxes_attachment` → `add_attachment_meta_box()` / `render_attachment_meta_box()`: registers and renders a "Content Credentials" side meta box on `post.php?post=<id>&action=edit`.
 
 ## Postmeta record
 
@@ -71,7 +86,7 @@ Stored at `_wpai_monitor_record` as a JSON-encoded string.
 }
 ```
 
-The `@context` entry `https://w3id.org/openverifiable/v1` is a permanent [w3id.org](https://w3id.org/) identifier that 302-redirects to the OpenVerifiable JSON-LD context in the DIF credential-schemas repo. Using the w3id identifier keeps the value baked into every stored record stable even if the underlying document moves (registration: [perma-id/w3id.org#6007](https://github.com/perma-id/w3id.org/pull/6007)).
+The `@context` entry `https://w3id.org/openverifiable/v1` is a permanent [w3id.org](https://w3id.org/) identifier that 302-redirects to the OpenVerifiable JSON-LD context in the DIF credential-schemas repo. Using the w3id identifier keeps the value baked into every stored record stable even if the underlying document moves (registration: [perma-id/w3id.org#6376](https://github.com/perma-id/w3id.org/pull/6376)).
 
 When no manifest is found, `c2pa` collapses to `{ "present": false, "format": <detected or null> }` and no sidecar is written.
 
@@ -123,18 +138,20 @@ When the experiment is enabled a **Content Credentials** column appears in the M
 
 | Value | Tooltip / Meaning |
 |---|---|
-| ✓ Credentials | *Unverified* — C2PA Content Credentials were detected in this file but have not been validated against its content. Links to the [CAI Verify tool](https://verify.contentauthenticity.org/) with the attachment URL pre-filled as the `source` parameter so the user can run a full cryptographic check in one click. |
+| ✓ Credentials | *Unverified* — C2PA Content Credentials were detected in this file but have not been validated. Links to the [CAI Verify tool](https://verify.contentauthenticity.org/). |
 | No credentials | No C2PA Content Credentials were detected in this file. |
 | — | No scan record exists (uploaded before the experiment was enabled, or a non-image MIME type). |
 
 The column is sortable: clicking the header sorts credentials-first (descending). Attachments with no scan record appear at the bottom.
 
+**Verification note:** WordPress attachment URLs are not reachable by the CAI verify tool's fetcher from outside the admin session (local, Playground, staging, and auth-gated sites are all unreachable). To verify a credential, download the original image from your media library and drag it into the verify tool manually. In-browser verification via the C2PA JS SDK (`@contentauth/sdk`) is planned as a follow-up and would remove this step.
+
 ## Attachment Details and Edit Media screens
 
-The same three-state **Content Credentials** field is surfaced on two additional admin screens:
+The same three-state **Content Credentials** status is surfaced on two additional admin screens, using visible help text rather than a CSS tooltip (the tooltip's `position: absolute` positioning is clipped by the media modal's overflow container):
 
-- **Attachment details** (`upload.php?item=<id>` and the media modal) — rendered via the `attachment_fields_to_edit` filter as a read-only HTML field labelled "Content Credentials".
-- **Edit Media** (`post.php?post=<id>&action=edit`) — rendered in a "Content Credentials" meta box in the side column via `add_meta_boxes_attachment`.
+- **Attachment details** (`upload.php?item=<id>` and the media modal) — rendered via the `attachment_fields_to_edit` filter as a read-only HTML field. `show_in_edit => false` suppresses it on the Edit Media screen to avoid duplicating the meta box.
+- **Edit Media** (`post.php?post=<id>&action=edit`) — rendered in a "Content Credentials" side meta box via `add_meta_boxes_attachment`, with a `<p class="description">` paragraph below the badge for each scannable state.
 
 ## Out of scope (this release)
 

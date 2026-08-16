@@ -81,7 +81,7 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * SCHEMA_VERSION only if the context vocabulary itself changes, not when
 	 * the redirect target moves.
 	 *
-	 * @see https://github.com/perma-id/w3id.org/pull/6007 w3id.org redirect registration.
+	 * @see https://github.com/perma-id/w3id.org/pull/6376 w3id.org redirect registration.
 	 *
 	 * @since x.x.x
 	 *
@@ -182,21 +182,26 @@ class C2pa_Monitor extends Abstract_Feature {
 	}
 
 	/**
-	 * Returns the HTML representing the C2PA status for the given attachment.
+	 * Returns the HTML badge representing the C2PA status for the given attachment.
 	 *
-	 * Shared by render_media_column(), add_attachment_fields(), and
+	 * Used by render_media_column(), add_attachment_fields(), and
 	 * render_attachment_meta_box(). Returns one of three states:
 	 * - "✓ Credentials" (linked to the CAI verify tool) when a manifest was detected.
 	 * - "No credentials" when the attachment was scanned and none were found.
 	 * - "—" when no scan record exists (e.g. uploaded before the experiment
 	 *   was enabled, or a non-image MIME type).
 	 *
+	 * Pass `false` for $with_tooltip when rendering on screens that have
+	 * enough room for a visible help text paragraph; the CSS tooltip is best
+	 * reserved for the compact Media Library list table column.
+	 *
 	 * @since x.x.x
 	 *
-	 * @param int $post_id The attachment post ID.
+	 * @param int  $post_id      The attachment post ID.
+	 * @param bool $with_tooltip Whether to emit the data-wpai-tooltip attribute.
 	 * @return string HTML fragment (already escaped).
 	 */
-	private function get_status_html( int $post_id ): string {
+	private function get_status_html( int $post_id, bool $with_tooltip = true ): string {
 		$raw = get_post_meta( $post_id, self::POSTMETA_KEY, true );
 		if ( ! is_string( $raw ) || '' === $raw ) {
 			return '<span aria-label="' . esc_attr__( 'Not scanned', 'ai' ) . '">—</span>';
@@ -208,21 +213,59 @@ class C2pa_Monitor extends Abstract_Feature {
 		}
 
 		if ( $record['c2pa']['present'] ) {
-			$verify_url  = 'https://verify.contentauthenticity.org/';
-			$attach_url  = wp_get_attachment_url( $post_id );
-			if ( $attach_url ) {
-				$verify_url = add_query_arg( 'source', rawurlencode( $attach_url ), $verify_url );
-			}
-			return '<a href="' . esc_url( $verify_url ) . '" target="_blank" rel="noopener noreferrer"'
+			$tooltip = $with_tooltip
+				? ' data-wpai-tooltip="' . esc_attr__( 'Unverified — credentials were detected but have not been validated. Click to open the Content Authenticity Initiative verify tool.', 'ai' ) . '"'
+				: '';
+			return '<a href="' . esc_url( 'https://verify.contentauthenticity.org/' ) . '" target="_blank" rel="noopener noreferrer"'
 				. ' style="color:#2271b1;text-decoration:none"'
-				. ' data-wpai-tooltip="' . esc_attr__( 'Unverified — credentials were detected but have not been validated. Click to open the Content Authenticity Initiative verify tool.', 'ai' ) . '">'
+				. $tooltip . '>'
 				. '&#10003; ' . esc_html__( 'Credentials', 'ai' )
 				. '</a>';
 		}
 
-		return '<span style="color:#666" data-wpai-tooltip="' . esc_attr__( 'No C2PA Content Credentials were detected in this file.', 'ai' ) . '">'
+		$tooltip = $with_tooltip
+			? ' data-wpai-tooltip="' . esc_attr__( 'No C2PA Content Credentials were detected in this file.', 'ai' ) . '"'
+			: '';
+		return '<span style="color:#666"' . $tooltip . '>'
 			. esc_html__( 'No credentials', 'ai' )
 			. '</span>';
+	}
+
+	/**
+	 * Returns a plain-text explanation of the C2PA status for the given attachment.
+	 *
+	 * Intended for use as visible help text on screens with enough room to
+	 * display it (Attachment details, Edit Media meta box), where a CSS tooltip
+	 * would either clip or be inaccessible.
+	 *
+	 * Returns an empty string for the "not scanned" state because "—" is
+	 * self-explanatory in context and a missing explanation is less confusing
+	 * than a generic one.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param int $post_id The attachment post ID.
+	 * @return string Plain text (already escaped via esc_html__()).
+	 */
+	private function get_status_help_text( int $post_id ): string {
+		$raw = get_post_meta( $post_id, self::POSTMETA_KEY, true );
+		if ( ! is_string( $raw ) || '' === $raw ) {
+			return '';
+		}
+
+		$record = json_decode( $raw, true );
+		if ( ! is_array( $record ) || ! isset( $record['c2pa']['present'] ) ) {
+			return '';
+		}
+
+		if ( $record['c2pa']['present'] ) {
+			return esc_html__(
+				'C2PA Content Credentials were detected in this file. To verify them, download the original image and drag it into the Content Authenticity Initiative verify tool.',
+				'ai'
+			);
+		}
+
+		return esc_html__( 'No C2PA Content Credentials were detected in this file.', 'ai' );
 	}
 
 	/**
@@ -254,6 +297,16 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * Fires on the `attachment_fields_to_edit` filter, which populates fields
 	 * shown in the media modal and on the `upload.php?item=<id>` screen.
 	 *
+	 * `show_in_edit` is set to false so this field is suppressed on the classic
+	 * Edit Media screen (`post.php?post=<id>&action=edit`), where the meta box
+	 * registered via add_attachment_meta_box() is shown instead. Without this
+	 * flag WordPress would render the field in the main column *and* the meta
+	 * box in the sidebar, duplicating the information.
+	 *
+	 * Help text is provided via the `helps` key rather than a CSS tooltip because
+	 * the tooltip's `position:absolute` positioning gets clipped by the media
+	 * modal's overflow container.
+	 *
 	 * @since x.x.x
 	 *
 	 * @param array<string, mixed> $form_fields Existing form fields.
@@ -265,9 +318,11 @@ class C2pa_Monitor extends Abstract_Feature {
 			return $form_fields;
 		}
 		$form_fields['wpai_c2pa'] = array(
-			'label' => __( 'Content Credentials', 'ai' ),
-			'input' => 'html',
-			'html'  => $this->get_status_html( $post->ID ),
+			'label'        => __( 'Content Credentials', 'ai' ),
+			'input'        => 'html',
+			'show_in_edit' => false,
+			'html'         => $this->get_status_html( $post->ID, false ),
+			'helps'        => $this->get_status_help_text( $post->ID ),
 		);
 		return $form_fields;
 	}
@@ -300,14 +355,22 @@ class C2pa_Monitor extends Abstract_Feature {
 	/**
 	 * Renders the Content Credentials meta box on the Edit Media screen.
 	 *
+	 * Outputs the status badge without the CSS tooltip (which is reserved for
+	 * the compact list table column), followed by a visible help text paragraph.
+	 *
 	 * @since x.x.x
 	 *
 	 * @param \WP_Post $post The attachment post object.
 	 * @return void
 	 */
 	public function render_attachment_meta_box( \WP_Post $post ): void {
-		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- get_status_html() returns pre-escaped HTML.
-		echo '<p>' . $this->get_status_html( $post->ID ) . '</p>';
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- helpers return pre-escaped HTML/text.
+		echo '<p>' . $this->get_status_html( $post->ID, false ) . '</p>';
+		$help = $this->get_status_help_text( $post->ID );
+		if ( '' !== $help ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- get_status_help_text() uses esc_html__().
+			echo '<p class="description">' . $help . '</p>';
+		}
 	}
 
 	/**

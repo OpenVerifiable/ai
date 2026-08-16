@@ -417,6 +417,8 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '&#10003;', $out );
 		$this->assertStringContainsString( 'verify.contentauthenticity.org', $out );
 		$this->assertStringContainsString( 'target="_blank"', $out );
+		// The column always renders with the CSS tooltip.
+		$this->assertStringContainsString( 'data-wpai-tooltip', $out );
 
 		// present=false.
 		$record_absent         = $record_present;
@@ -426,6 +428,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$feature->render_media_column( 'wpai_c2pa', (int) $attachment_id );
 		$out = ob_get_clean();
 		$this->assertStringContainsString( 'No credentials', $out );
+		$this->assertStringContainsString( 'data-wpai-tooltip', $out );
 
 		delete_option( $global_opt );
 		delete_option( $feature_opt );
@@ -592,14 +595,20 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$post          = get_post( (int) $attachment_id );
 		$this->assertInstanceOf( \WP_Post::class, $post );
 
-		// Enabled: field must appear with the expected label.
+		// Enabled: field must appear with the expected structure.
 		update_option( $global_opt, true );
 		update_option( $feature_opt, true );
 		$fields = ( new C2pa_Monitor() )->add_attachment_fields( array(), $post );
 		$this->assertArrayHasKey( 'wpai_c2pa', $fields );
 		$this->assertSame( 'Content Credentials', $fields['wpai_c2pa']['label'] );
 		$this->assertSame( 'html', $fields['wpai_c2pa']['input'] );
+		// show_in_edit must be false to prevent duplication with the meta box on Edit Media.
+		$this->assertFalse( $fields['wpai_c2pa']['show_in_edit'] );
+		// helps key must be set (may be empty string for not-scanned state).
+		$this->assertArrayHasKey( 'helps', $fields['wpai_c2pa'] );
 		$this->assertStringContainsString( '—', $fields['wpai_c2pa']['html'] );
+		// Tooltip attribute must NOT appear in the field html (reserved for the column).
+		$this->assertStringNotContainsString( 'data-wpai-tooltip', $fields['wpai_c2pa']['html'] );
 
 		// Disabled: no field added.
 		update_option( $feature_opt, false );
@@ -626,7 +635,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$fields = $feature->add_attachment_fields( array(), $post );
 		$this->assertStringContainsString( '—', $fields['wpai_c2pa']['html'] );
 
-		// present=true: verify link.
+		// present=true: verify link, no tooltip, help text present.
 		$record = array(
 			'@context'       => array( 'https://schema.org/' ),
 			'schema_version' => 1,
@@ -642,12 +651,17 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$html   = $fields['wpai_c2pa']['html'];
 		$this->assertStringContainsString( 'Credentials', $html );
 		$this->assertStringContainsString( 'verify.contentauthenticity.org', $html );
+		$this->assertStringNotContainsString( 'data-wpai-tooltip', $html );
+		$this->assertNotEmpty( $fields['wpai_c2pa']['helps'] );
+		$this->assertStringContainsString( 'verify', $fields['wpai_c2pa']['helps'] );
 
-		// present=false: "No credentials".
+		// present=false: "No credentials", no tooltip, help text present.
 		$record['c2pa'] = array( 'present' => false, 'format' => 'jpeg' );
 		update_post_meta( (int) $attachment_id, C2pa_Monitor::POSTMETA_KEY, wp_json_encode( $record ) );
 		$fields = $feature->add_attachment_fields( array(), $post );
 		$this->assertStringContainsString( 'No credentials', $fields['wpai_c2pa']['html'] );
+		$this->assertStringNotContainsString( 'data-wpai-tooltip', $fields['wpai_c2pa']['html'] );
+		$this->assertNotEmpty( $fields['wpai_c2pa']['helps'] );
 
 		delete_option( 'wpai_features_enabled' );
 		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
@@ -681,7 +695,8 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * render_attachment_meta_box() outputs the status HTML inside a <p> tag.
+	 * render_attachment_meta_box() outputs the status badge (no tooltip) plus
+	 * a visible help text paragraph for states that have one.
 	 */
 	public function test_render_attachment_meta_box_output(): void {
 		update_option( 'wpai_features_enabled', true );
@@ -692,14 +707,16 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$post          = get_post( (int) $attachment_id );
 		$this->assertInstanceOf( \WP_Post::class, $post );
 
-		// No record: should show dash inside <p>.
+		// No record: dash inside <p>, no description paragraph, no tooltip.
 		ob_start();
 		$feature->render_attachment_meta_box( $post );
 		$out = ob_get_clean();
 		$this->assertStringContainsString( '<p>', $out );
 		$this->assertStringContainsString( '—', $out );
+		$this->assertStringNotContainsString( 'data-wpai-tooltip', $out );
+		$this->assertStringNotContainsString( 'class="description"', $out );
 
-		// present=true: verify link inside <p>.
+		// present=true: verify link, help text paragraph, no tooltip.
 		$record = array(
 			'@context'       => array( 'https://schema.org/' ),
 			'schema_version' => 1,
@@ -716,16 +733,29 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$out = ob_get_clean();
 		$this->assertStringContainsString( 'verify.contentauthenticity.org', $out );
 		$this->assertStringContainsString( 'Credentials', $out );
+		$this->assertStringNotContainsString( 'data-wpai-tooltip', $out );
+		$this->assertStringContainsString( 'class="description"', $out );
+
+		// present=false: "No credentials", help text paragraph, no tooltip.
+		$record['c2pa'] = array( 'present' => false, 'format' => 'jpeg' );
+		update_post_meta( (int) $attachment_id, C2pa_Monitor::POSTMETA_KEY, wp_json_encode( $record ) );
+		ob_start();
+		$feature->render_attachment_meta_box( $post );
+		$out = ob_get_clean();
+		$this->assertStringContainsString( 'No credentials', $out );
+		$this->assertStringNotContainsString( 'data-wpai-tooltip', $out );
+		$this->assertStringContainsString( 'class="description"', $out );
 
 		delete_option( 'wpai_features_enabled' );
 		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
 	}
 
 	/**
-	 * The verify link in the "Credentials" state passes the attachment URL
-	 * as the `source` query parameter.
+	 * The verify link points at the bare CAI tool URL with no query parameters.
+	 * WordPress attachment URLs are not reachable by the verify tool's fetcher
+	 * from outside the admin session, so no ?source= pre-fill is added.
 	 */
-	public function test_verify_link_includes_source_param(): void {
+	public function test_verify_link_has_no_source_param(): void {
 		update_option( 'wpai_features_enabled', true );
 		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
 		$feature = new C2pa_Monitor();
@@ -746,8 +776,8 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		ob_start();
 		$feature->render_media_column( 'wpai_c2pa', (int) $attachment_id );
 		$out = ob_get_clean();
-		// The verify URL should carry a `source` query param.
-		$this->assertStringContainsString( 'source=', $out );
+		$this->assertStringContainsString( 'verify.contentauthenticity.org', $out );
+		$this->assertStringNotContainsString( 'source=', $out );
 
 		delete_option( 'wpai_features_enabled' );
 		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
