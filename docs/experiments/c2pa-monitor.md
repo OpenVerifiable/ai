@@ -15,7 +15,7 @@ On every successful image upload (`add_attachment` priority 20):
 1. Resolve the original on-disk file via `wp_get_original_image_path()`.
 2. Sniff magic bytes for JPEG, PNG, or WebP. Other MIME types are skipped.
 3. Walk the container looking for the C2PA storage segment:
-   - JPEG: contiguous `APP11` (0xFFEB) markers carrying a JUMBF payload tagged with the literal `c2pa` (or `jumb`) byte sequence.
+   - JPEG: contiguous `APP11` (0xFFEB) markers. The first segment (packet sequence number `Z = 1`) must contain a valid JUMBF superbox (`jumb`) with a type UUID box (`jumd`) carrying the C2PA type UUID `6332706100110010800000AA00389B71`. Continuation segments (`Z > 1`) repeat the `LBox`/`TBox` header and are stripped before reassembly.
    - PNG: a `caBX` chunk.
    - WebP: a top-level RIFF chunk of type `C2PA`.
 4. If found, stream the raw manifest bytes once, computing SHA-256 in flight, and persist the bytes to a sidecar file under `wp-content/uploads/ai-c2pa/`.
@@ -40,7 +40,7 @@ The handler is wrapped in a `try / catch ( Throwable )` boundary and writes a re
 - `manage_media_custom_column` → `render_media_column()`: renders the three-state status badge with a CSS hover tooltip.
 - `manage_upload_sortable_columns` → `register_sortable_column()`: marks the column as sortable (descending by default).
 - `pre_get_posts` → `sort_by_c2pa_column()`: injects `meta_key` / `orderby` when sorting by the column.
-- `admin_head-upload.php` → `print_column_styles()`: prints the inline CSS for the hover tooltip.
+- `admin_head-upload.php` / `admin_head-post.php` → `print_admin_styles()`: prints inline CSS for the hover tooltip and the label-alignment fix for the compat field.
 
 **Attachment Details / Edit Media UI**
 
@@ -130,7 +130,14 @@ C2PA manifests in the wild can run into the hundreds of kilobytes. Persisting th
 
 ## Test fixtures
 
-Synthetic fixtures are generated at runtime by `tests/Integration/Includes/Experiments/C2pa_Monitor/Fixtures.php`. They are just well-formed enough at the container level to drive the detector and are **not** valid signed C2PA assets. Generating them at runtime keeps binary blobs out of the repo and avoids any third-party fixture licensing.
+Synthetic fixtures are generated at runtime by `tests/Integration/Includes/Experiments/C2pa_Monitor/Fixtures.php`. They are just well-formed enough at the container level to drive the detector and are **not** valid signed C2PA assets.
+
+Two real signed assets from the [`c2pa-node`](https://github.com/contentauth/c2pa-node) test suite are vendored under `tests/fixtures/c2pa/` for byte-exact assertions against the JPEG APP11 reader:
+
+- `XCA.jpg` — two APP11 segments; `LBox` declares 126 523 bytes. Used for LBox arithmetic, seam checks, and a pinned SHA-256 assertion.
+- `A.jpg` — no APP11 segments; clean negative case.
+
+Both files are MIT-licensed (© Adobe, 2023). The `/tests` directory is excluded from plugin distribution by `.distignore` and `export-ignore` in `.gitattributes`, so the binary assets never reach users. Attribution: [`CREDITS.md`](../../CREDITS.md).
 
 ## Media Library column
 
@@ -155,8 +162,8 @@ The same three-state **Content Credentials** status is surfaced on two additiona
 
 ## Out of scope (this release)
 
-- JUMBF box reader and CBOR decoder.
-- Populating `c2pa.decoded` with claim generator / digital source type / action history.
-- Icon overlay in the media grid view.
-- Cryptographic verification of manifests (the verify link delegates this to the CAI Verify tool).
-- Preserving manifests through WordPress's GD / Imagick subsize pipeline.
+- [#953](https://github.com/WordPress/ai/issues/953) — JUMBF box reader and CBOR decoder; populating `c2pa.decoded` with claim generator / digital source type / action history.
+- [#954](https://github.com/WordPress/ai/issues/954) — Cryptographic verification in-browser via `@contentauth/sdk` (targeting 1.4.0); the verify link currently delegates to the CAI Verify tool.
+- [#955](https://github.com/WordPress/ai/issues/955) — Icon overlay / badge in the Media Library grid view, pending C2PA conformance work.
+- [#956](https://github.com/WordPress/ai/issues/956) — Preserving manifests through WordPress's GD / Imagick subsize pipeline.
+- [#957](https://github.com/WordPress/ai/issues/957) — Pre-filling the CAI Verify tool with a publicly reachable attachment URL (`?source=`).

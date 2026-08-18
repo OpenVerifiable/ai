@@ -47,16 +47,11 @@ class Fixtures {
 	 * @return void
 	 */
 	public static function write_jpeg_with_c2pa( string $path, string $manifest_payload ): void {
-		$header_jp           = 'JP';
-		$box_instance_number = pack( 'n', 1 );
-		$packet_seq_number   = pack( 'J', 1 );
-		$inner               = $header_jp . $box_instance_number . $packet_seq_number . $manifest_payload;
-
-		$marker = "\xFF\xEB";
-		$len    = pack( 'n', strlen( $inner ) + 2 );
+		// CI(2) + En(2) + Z(4, uint32 BE, 1 = first) + JUMBF superbox.
+		$inner = 'JP' . pack( 'n', 1 ) . pack( 'N', 1 ) . self::build_c2pa_jumbf_store( $manifest_payload );
 
 		$bytes  = "\xFF\xD8";
-		$bytes .= $marker . $len . $inner;
+		$bytes .= "\xFF\xEB" . pack( 'n', strlen( $inner ) + 2 ) . $inner;
 		$bytes .= "\xFF\xDA\x00\x02";
 		$bytes .= "\xFF\xD9";
 
@@ -68,14 +63,15 @@ class Fixtures {
 	 * sharing the same Box Instance Number.
 	 *
 	 * Mirrors how real C2PA encoders split manifests larger than the JPEG
-	 * 64 KiB marker payload limit. Only the first segment carries the JUMBF
-	 * box header that identifies the sequence as C2PA; the remaining segments
-	 * are pure payload continuation.
+	 * 64 KiB marker payload limit. The first segment (Z=1) carries the opening
+	 * bytes of the JUMBF superbox (LBox+TBox+jumd+content). Each continuation
+	 * segment (Z>1) repeats the LBox+TBox header before its content slice,
+	 * matching the layout confirmed against real signed assets.
 	 *
 	 * @since x.x.x
 	 *
 	 * @param string $path             Absolute output path.
-	 * @param string $manifest_payload Synthetic JUMBF bytes to embed.
+	 * @param string $manifest_payload Content bytes to embed inside the JUMBF store.
 	 * @param int    $segment_count    Number of APP11 segments to emit.
 	 * @return void
 	 */
@@ -85,25 +81,34 @@ class Fixtures {
 		int $segment_count
 	): void {
 		$segment_count = max( 1, $segment_count );
-		$total         = strlen( $manifest_payload );
-		$base_size     = intdiv( $total, $segment_count );
-		$remainder     = $total - ( $base_size * $segment_count );
+		$jumbf_store   = self::build_c2pa_jumbf_store( $manifest_payload );
+		$store_len     = strlen( $jumbf_store );
+		// Repeated LBox+TBox header placed at the start of every continuation segment.
+		$lbox_tbox     = substr( $jumbf_store, 0, 8 );
 
-		$bytes  = "\xFF\xD8";
-		$cursor = 0;
-		for ( $i = 0; $i < $segment_count; $i++ ) {
-			$size  = $base_size + ( ( $segment_count - 1 ) === $i ? $remainder : 0 );
-			$slice = substr( $manifest_payload, $cursor, $size );
-			$cursor += $size;
+		// Split the jumbf_store across $segment_count pieces.
+		// Segment 1 inner content: jumbf_store[0..$cut].
+		// Segment N inner content (for N>1): $lbox_tbox + jumbf_store[$prev_cut..$cut].
+		$base_size     = max( 1, intdiv( $store_len, $segment_count ) );
+		// First segment must carry enough bytes for the validator (>= 32 inner bytes).
+		$first_cut     = max( 32, $base_size );
 
-			$header_jp           = 'JP';
-			$box_instance_number = pack( 'n', 1 );
-			$packet_seq_number   = pack( 'J', $i + 1 );
-			$inner               = $header_jp . $box_instance_number . $packet_seq_number . $slice;
+		$bytes = "\xFF\xD8";
 
-			$marker = "\xFF\xEB";
-			$len    = pack( 'n', strlen( $inner ) + 2 );
-			$bytes .= $marker . $len . $inner;
+		// Segment 1 (Z=1): first portion of the JUMBF store.
+		$seg1_inner = 'JP' . pack( 'n', 1 ) . pack( 'N', 1 ) . substr( $jumbf_store, 0, $first_cut );
+		$bytes     .= "\xFF\xEB" . pack( 'n', strlen( $seg1_inner ) + 2 ) . $seg1_inner;
+
+		// Continuation segments (Z>1): repeated header + content slice.
+		$cursor = $first_cut;
+		for ( $i = 2; $i <= $segment_count; $i++ ) {
+			$is_last  = ( $i === $segment_count );
+			$size     = $is_last ? ( $store_len - $cursor ) : $base_size;
+			$seg_inner = 'JP' . pack( 'n', 1 ) . pack( 'N', $i )
+				. $lbox_tbox
+				. substr( $jumbf_store, $cursor, $size );
+			$bytes    .= "\xFF\xEB" . pack( 'n', strlen( $seg_inner ) + 2 ) . $seg_inner;
+			$cursor   += $size;
 		}
 
 		$bytes .= "\xFF\xDA\x00\x02";
@@ -113,11 +118,12 @@ class Fixtures {
 	}
 
 	/**
-	 * Writes a JPEG file containing an APP11 segment whose JUMBF inner bytes
-	 * do NOT contain `c2pa` or `jumb` in the first 64 bytes.
+	 * Writes a JPEG file containing an APP11 segment with a genuine JUMBF
+	 * superbox that carries a non-C2PA type UUID.
 	 *
-	 * Used to verify Format_Detector ignores generic JUMBF payloads that
-	 * happen to ride in APP11 but are not C2PA.
+	 * Used to verify Format_Detector rejects APP11 segments whose jumd UUID
+	 * does not match the C2PA type UUID, even though the segment is otherwise
+	 * structurally valid (jumb+jumd correctly framed).
 	 *
 	 * @since x.x.x
 	 *
@@ -125,17 +131,18 @@ class Fixtures {
 	 * @return void
 	 */
 	public static function write_jpeg_with_jumbf_non_c2pa( string $path ): void {
-		$header_jp           = 'JP';
-		$box_instance_number = pack( 'n', 5 );
-		$packet_seq_number   = pack( 'J', 1 );
-		$inner_payload       = str_repeat( "\x00\x01\x02\x03\x04\x05\x06\x07", 12 );
-		$inner               = $header_jp . $box_instance_number . $packet_seq_number . $inner_payload;
+		// Build a valid JUMBF superbox with a non-C2PA type UUID.
+		$non_c2pa_uuid = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F";
+		$jumd_data     = $non_c2pa_uuid . "\x00" . "test\x00";
+		$jumd_box      = pack( 'N', 4 + 4 + strlen( $jumd_data ) ) . 'jumd' . $jumd_data;
+		$content       = str_repeat( "\x00\x01\x02\x03", 8 );
+		$store_size    = 4 + 4 + strlen( $jumd_box ) + strlen( $content );
+		$jumbf_store   = pack( 'N', $store_size ) . 'jumb' . $jumd_box . $content;
 
-		$marker = "\xFF\xEB";
-		$len    = pack( 'n', strlen( $inner ) + 2 );
+		$inner = 'JP' . pack( 'n', 5 ) . pack( 'N', 1 ) . $jumbf_store;
 
 		$bytes  = "\xFF\xD8";
-		$bytes .= $marker . $len . $inner;
+		$bytes .= "\xFF\xEB" . pack( 'n', strlen( $inner ) + 2 ) . $inner;
 		$bytes .= "\xFF\xDA\x00\x02";
 		$bytes .= "\xFF\xD9";
 
@@ -164,8 +171,8 @@ class Fixtures {
 		$app1 = "Exif\x00\x00" . str_repeat( "\x00", 32 );
 		$bytes .= "\xFF\xE1" . pack( 'n', strlen( $app1 ) + 2 ) . $app1;
 
-		$app11_inner = 'JP' . pack( 'n', 1 ) . pack( 'J', 1 ) . $manifest_payload;
-		$bytes .= "\xFF\xEB" . pack( 'n', strlen( $app11_inner ) + 2 ) . $app11_inner;
+		$app11_inner = 'JP' . pack( 'n', 1 ) . pack( 'N', 1 ) . self::build_c2pa_jumbf_store( $manifest_payload );
+		$bytes      .= "\xFF\xEB" . pack( 'n', strlen( $app11_inner ) + 2 ) . $app11_inner;
 
 		$app2 = "ICC_PROFILE\x00\x01\x01" . str_repeat( "\x00", 16 );
 		$bytes .= "\xFF\xE2" . pack( 'n', strlen( $app2 ) + 2 ) . $app2;
@@ -202,7 +209,7 @@ class Fixtures {
 		}
 
 		if ( '' !== $trailing_c2pa_payload ) {
-			$inner = 'JP' . pack( 'n', 1 ) . pack( 'J', 1 ) . $trailing_c2pa_payload;
+			$inner  = 'JP' . pack( 'n', 1 ) . pack( 'N', 1 ) . self::build_c2pa_jumbf_store( $trailing_c2pa_payload );
 			$bytes .= "\xFF\xEB" . pack( 'n', strlen( $inner ) + 2 ) . $inner;
 		}
 
@@ -404,6 +411,32 @@ class Fixtures {
 		$prefix = "jumbc2pa\x00\x00\x00\x00";
 		$body   = str_repeat( "AB", (int) ceil( ( $size - strlen( $prefix ) ) / 2 ) );
 		return substr( $prefix . $body, 0, $size );
+	}
+
+	/**
+	 * Wraps $content in a spec-correct C2PA JUMBF superbox.
+	 *
+	 * The layout matches the structure confirmed against real signed assets:
+	 *
+	 *   LBox(4) + "jumb"(4)                        <- superbox header (at slice +0)
+	 *   LBox(4) + "jumd"(4) + C2PA UUID(16) + ...  <- type declaration box
+	 *   $content                                    <- nested JUMBF boxes / payload
+	 *
+	 * The bytes returned are exactly what should appear in the inner slice of a
+	 * single-segment APP11 (starting at payload_offset + 8) or across segments.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param string $content Payload bytes to embed inside the JUMBF store.
+	 * @return string Bytes of the complete JUMBF superbox.
+	 */
+	public static function build_c2pa_jumbf_store( string $content ): string {
+		$c2pa_uuid = "\x63\x32\x70\x61\x00\x11\x00\x10\x80\x00\x00\xAA\x00\x38\x9B\x71";
+		$jumd_data = $c2pa_uuid . "\x03" . "c2pa\x00";
+		$jumd_box  = pack( 'N', 4 + 4 + strlen( $jumd_data ) ) . 'jumd' . $jumd_data;
+
+		$store_size = 4 + 4 + strlen( $jumd_box ) + strlen( $content );
+		return pack( 'N', $store_size ) . 'jumb' . $jumd_box . $content;
 	}
 
 	/**

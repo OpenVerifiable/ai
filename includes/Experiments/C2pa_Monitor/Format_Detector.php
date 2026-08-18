@@ -274,39 +274,53 @@ class Format_Detector {
 	 * Extracts the JUMBF payload bytes from a single JPEG APP11 segment if it
 	 * carries C2PA data.
 	 *
-	 * The APP11 segment layout (per ISO 19566-5) is:
+	 * The APP11 segment layout (per ISO 19566-5 Annex B), confirmed against
+	 * real C2PA-signed assets:
 	 *
-	 *   2 bytes   Common Identifier ("JP")
-	 *   2 bytes   Box Instance Number (uint16 BE)
-	 *   8 bytes   Packet Sequence Number (uint64 BE)
-	 *   N bytes   JUMBF box bytes (or fragment thereof)
+	 *   2 bytes  Common Identifier ("JP")
+	 *   2 bytes  Box Instance Number (uint16 BE)   -- En
+	 *   4 bytes  Packet Sequence Number (uint32 BE) -- Z; 1 = first, 2+ = continuation
 	 *
-	 * For long manifests the JUMBF payload is split across multiple APP11
-	 * segments that share the same Box Instance Number. Only the first segment
-	 * in such a sequence carries the JUMBF box header that identifies it as
-	 * C2PA. We therefore track which Box Instance Numbers we have already
-	 * approved and accept later segments with the same instance number as
-	 * continuation without re-scanning their inner bytes for the C2PA marker.
+	 * First segment (Z === 1) -- JUMBF superbox starts immediately at payload +8:
+	 *   4 bytes  LBox (total size of this JUMBF superbox, uint32 BE)
+	 *   4 bytes  TBox ("jumb")
+	 *   4 bytes  inner LBox
+	 *   4 bytes  inner TBox ("jumd")
+	 *  16 bytes  C2PA type UUID (63 32 70 61 00 11 00 10 80 00 00 AA 00 38 9B 71)
+	 *   ...      label and nested JUMBF boxes
+	 *
+	 * Continuation segment (Z > 1) -- box header repeated at payload +8:
+	 *   4 bytes  LBox (same declared total size)
+	 *   4 bytes  TBox ("jumb")
+	 *   ...      continuation payload (starts at payload +16)
+	 *
+	 * We collect [offset, length] slices that, when concatenated, yield the full
+	 * JUMBF store: [payload_offset + 8, inner_length] for the first segment and
+	 * [payload_offset + 16, inner_length] for each continuation.
 	 *
 	 * @since x.x.x
 	 *
-	 * @param resource              $fh                  File handle, positioned at the segment payload.
-	 * @param int                   $payload_length      Length of this segment's payload, in bytes.
-	 * @param int                   $payload_offset      Absolute offset of the segment payload.
-	 * @param array<int, true>      $approved_instances  Set of Box Instance Numbers already classified as C2PA. Updated by reference when a new sequence is approved.
-	 * @return array{0:int,1:int}|null [offset, length] of inner JUMBF bytes, or null.
+	 * @param resource         $fh                 File handle, positioned at the segment payload.
+	 * @param int              $payload_length     Length of this segment's payload, in bytes.
+	 * @param int              $payload_offset     Absolute offset of the segment payload.
+	 * @param array<int, true> $approved_instances Box Instance Numbers already classified as C2PA. Updated by reference.
+	 * @return array{0:int,1:int}|null [offset, length] of the JUMBF slice, or null.
 	 */
 	private function extract_jpeg_app11_jumbf_slice( $fh, int $payload_length, int $payload_offset, array &$approved_instances ): ?array {
-		if ( $payload_length < 12 ) {
+		// Minimum: CI(2) + En(2) + Z(4) = 8 bytes.
+		if ( $payload_length < 8 ) {
 			return null;
 		}
 
-		$header = (string) fread( $fh, 12 );
-		if ( strlen( $header ) < 12 ) {
+		$header = (string) fread( $fh, 8 );
+		if ( strlen( $header ) < 8 ) {
 			return null;
 		}
 
 		if ( 'JP' !== substr( $header, 0, 2 ) ) {
+			if ( -1 === fseek( $fh, $payload_offset + $payload_length, SEEK_SET ) ) {
+				return null;
+			}
 			return null;
 		}
 
@@ -316,33 +330,91 @@ class Format_Detector {
 		}
 		$instance = (int) $instance_unpack[1];
 
-		$inner_length = $payload_length - 12;
-		if ( $inner_length <= 0 ) {
+		$z_unpack = unpack( 'N', substr( $header, 4, 4 ) );
+		if ( false === $z_unpack ) {
 			return null;
 		}
+		$z = (int) $z_unpack[1];
 
-		if ( isset( $approved_instances[ $instance ] ) ) {
+		if ( 0 === $z ) {
 			if ( -1 === fseek( $fh, $payload_offset + $payload_length, SEEK_SET ) ) {
 				return null;
 			}
-			return array( $payload_offset + 12, $inner_length );
+			return null;
 		}
 
-		$peek_size = min( 64, $inner_length );
-		$peek      = (string) fread( $fh, $peek_size );
+		if ( $z > 1 ) {
+			// Continuation segment: skip the repeated LBox(4)+TBox(4) at payload +8.
+			// Minimum: 8-byte prefix + 4 (LBox) + 4 (TBox) = 16 bytes.
+			if ( $payload_length < 16 || ! isset( $approved_instances[ $instance ] ) ) {
+				if ( -1 === fseek( $fh, $payload_offset + $payload_length, SEEK_SET ) ) {
+					return null;
+				}
+				return null;
+			}
+			$inner_length = $payload_length - 16;
+			if ( $inner_length <= 0 ) {
+				if ( -1 === fseek( $fh, $payload_offset + $payload_length, SEEK_SET ) ) {
+					return null;
+				}
+				return null;
+			}
+			if ( -1 === fseek( $fh, $payload_offset + $payload_length, SEEK_SET ) ) {
+				return null;
+			}
+			return array( $payload_offset + 16, $inner_length );
+		}
 
-		$looks_like_c2pa = false !== strpos( $peek, 'c2pa' ) || false !== strpos( $peek, 'jumb' );
+		// Z === 1: first segment. Validate the C2PA JUMBF superbox header.
+		// We need at least 32 bytes of inner content:
+		//   LBox(4) + TBox("jumb")(4) + inner_LBox(4) + inner_TBox("jumd")(4) + UUID(16).
+		$inner_length = $payload_length - 8;
+		if ( $inner_length < 32 ) {
+			if ( -1 === fseek( $fh, $payload_offset + $payload_length, SEEK_SET ) ) {
+				return null;
+			}
+			return null;
+		}
+
+		$peek = (string) fread( $fh, 32 );
+		if ( strlen( $peek ) < 32 ) {
+			if ( -1 === fseek( $fh, $payload_offset + $payload_length, SEEK_SET ) ) {
+				return null;
+			}
+			return null;
+		}
+
+		// Offset 4 within the slice: TBox of the JUMBF superbox must be "jumb".
+		if ( 'jumb' !== substr( $peek, 4, 4 ) ) {
+			if ( -1 === fseek( $fh, $payload_offset + $payload_length, SEEK_SET ) ) {
+				return null;
+			}
+			return null;
+		}
+
+		// Offset 12 within the slice: TBox of the inner UUID box must be "jumd".
+		if ( 'jumd' !== substr( $peek, 12, 4 ) ) {
+			if ( -1 === fseek( $fh, $payload_offset + $payload_length, SEEK_SET ) ) {
+				return null;
+			}
+			return null;
+		}
+
+		// Offset 16 within the slice: C2PA type UUID (16 bytes).
+		$c2pa_uuid = "\x63\x32\x70\x61\x00\x11\x00\x10\x80\x00\x00\xAA\x00\x38\x9B\x71";
+		if ( $c2pa_uuid !== substr( $peek, 16, 16 ) ) {
+			if ( -1 === fseek( $fh, $payload_offset + $payload_length, SEEK_SET ) ) {
+				return null;
+			}
+			return null;
+		}
 
 		if ( -1 === fseek( $fh, $payload_offset + $payload_length, SEEK_SET ) ) {
 			return null;
 		}
 
-		if ( ! $looks_like_c2pa ) {
-			return null;
-		}
-
 		$approved_instances[ $instance ] = true;
-		return array( $payload_offset + 12, $inner_length );
+		return array( $payload_offset + 8, $inner_length );
 	}
 
 	/**

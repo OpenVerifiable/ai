@@ -67,11 +67,14 @@ class Manifest_ReaderTest extends WP_UnitTestCase {
 		$reader   = new Manifest_Reader();
 		$manifest = $reader->read( $path, $location );
 
+		// The reader returns the full JUMBF store (LBox+TBox+jumd+content), not just $payload.
+		$expected = Fixtures::build_c2pa_jumbf_store( $payload );
+
 		$this->assertInstanceOf( Raw_Manifest::class, $manifest );
 		$this->assertSame( 'jpeg', $manifest->format );
-		$this->assertSame( strlen( $payload ), $manifest->bytes_length );
-		$this->assertSame( hash( 'sha256', $payload ), $manifest->sha256 );
-		$this->assertSame( $payload, $manifest->bytes );
+		$this->assertSame( strlen( $expected ), $manifest->bytes_length );
+		$this->assertSame( hash( 'sha256', $expected ), $manifest->sha256 );
+		$this->assertSame( $expected, $manifest->bytes );
 	}
 
 	/**
@@ -202,9 +205,12 @@ class Manifest_ReaderTest extends WP_UnitTestCase {
 		$reader   = new Manifest_Reader();
 		$manifest = $reader->read( $path, $location );
 
+		// Multi-segment reassembly yields the complete JUMBF store, not just $payload.
+		$expected = Fixtures::build_c2pa_jumbf_store( $payload );
+
 		$this->assertInstanceOf( Raw_Manifest::class, $manifest );
-		$this->assertSame( $payload, $manifest->bytes );
-		$this->assertSame( hash( 'sha256', $payload ), $manifest->sha256 );
+		$this->assertSame( $expected, $manifest->bytes );
+		$this->assertSame( hash( 'sha256', $expected ), $manifest->sha256 );
 	}
 
 	/**
@@ -287,5 +293,70 @@ class Manifest_ReaderTest extends WP_UnitTestCase {
 		);
 
 		$this->assertNull( $result );
+	}
+
+	/**
+	 * Real signed JPEG (XCA.jpg): the reader must produce byte-exact results.
+	 *
+	 * Assertions:
+	 *   - bytes_length equals the LBox declared in the JUMBF superbox (126523).
+	 *   - "jumb" appears at offset 4 (the TBox of the JUMBF superbox).
+	 *   - The C2PA type UUID appears at offset 16 (inside the jumd box).
+	 *   - sha256 matches a pinned literal computed from the two correct slices.
+	 */
+	public function test_read_real_jpeg_manifest_is_byte_exact(): void {
+		$path = dirname( __DIR__, 4 ) . '/fixtures/c2pa/XCA.jpg';
+		if ( ! is_file( $path ) ) {
+			$this->markTestSkipped( 'XCA.jpg fixture not found.' );
+		}
+
+		$detector = new Format_Detector();
+		$location = $detector->find_manifest_location( $path, 'jpeg' );
+		$this->assertIsArray( $location );
+
+		$reader   = new Manifest_Reader();
+		$manifest = $reader->read( $path, $location );
+
+		$this->assertInstanceOf( Raw_Manifest::class, $manifest );
+		$this->assertSame( 126523, $manifest->bytes_length );
+		$this->assertSame( 'jumb', substr( $manifest->bytes, 4, 4 ) );
+		$c2pa_uuid = "\x63\x32\x70\x61\x00\x11\x00\x10\x80\x00\x00\xAA\x00\x38\x9B\x71";
+		$this->assertSame( $c2pa_uuid, substr( $manifest->bytes, 16, 16 ) );
+		$this->assertSame(
+			'3863bf11e428e54366a87d2484548e0699051bddb1cea369722af0f8f2e96075',
+			$manifest->sha256
+		);
+	}
+
+	/**
+	 * Regression guard: the reassembled JUMBF store must not contain a
+	 * spurious "jumb" box header at the segment-2 seam position.
+	 *
+	 * With the old, broken parser (+12 per segment), the TBox from the
+	 * continuation segment's repeated LBox/TBox header was spliced into the
+	 * output at byte 64000, producing "jumb" at that offset. The corrected
+	 * parser (+16 for continuations) strips the repeated header and those
+	 * bytes become the real content.
+	 */
+	public function test_reassembled_bytes_contain_no_spliced_box_header(): void {
+		$path = dirname( __DIR__, 4 ) . '/fixtures/c2pa/XCA.jpg';
+		if ( ! is_file( $path ) ) {
+			$this->markTestSkipped( 'XCA.jpg fixture not found.' );
+		}
+
+		$detector = new Format_Detector();
+		$location = $detector->find_manifest_location( $path, 'jpeg' );
+		$this->assertIsArray( $location );
+
+		$reader   = new Manifest_Reader();
+		$manifest = $reader->read( $path, $location );
+		$this->assertNotNull( $manifest );
+
+		// "jumb" must appear exactly at offset 4 (the TBox of the superbox).
+		$this->assertSame( 'jumb', substr( $manifest->bytes, 4, 4 ) );
+
+		// Bytes at the segment-2 seam (offset 64000) must NOT be "jumb".
+		// With the broken slicer they would be the spurious repeated TBox.
+		$this->assertNotSame( 'jumb', substr( $manifest->bytes, 64000, 4 ) );
 	}
 }

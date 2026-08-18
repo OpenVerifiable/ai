@@ -102,7 +102,7 @@ class C2pa_Monitor extends Abstract_Feature {
 	protected function load_metadata(): array {
 		return array(
 			'label'       => __( 'C2PA Monitor', 'ai' ),
-			'description' => __( 'Detects C2PA Content Credentials in uploaded images and stores the raw manifest plus a structured record in postmeta. Read-only and fail-open; never blocks an upload.', 'ai' ),
+			'description' => __( 'Detects C2PA Content Credentials in uploaded images, writes the raw manifest to a sidecar file, and stores a structured record in postmeta. Read-only and fail-open; never blocks an upload.', 'ai' ),
 			'category'    => Experiment_Category::ADMIN,
 			'stability'   => 'experimental',
 			'capability'  => 'none',
@@ -117,7 +117,8 @@ class C2pa_Monitor extends Abstract_Feature {
 		add_filter( 'manage_media_columns', array( $this, 'add_media_column' ) );
 		add_filter( 'manage_upload_columns', array( $this, 'add_media_column' ) );
 		add_action( 'manage_media_custom_column', array( $this, 'render_media_column' ), 10, 2 );
-		add_action( 'admin_head-upload.php', array( $this, 'print_column_styles' ) );
+		add_action( 'admin_head-upload.php', array( $this, 'print_admin_styles' ) );
+		add_action( 'admin_head-post.php', array( $this, 'print_admin_styles' ) );
 		add_filter( 'manage_upload_sortable_columns', array( $this, 'register_sortable_column' ) );
 		add_action( 'pre_get_posts', array( $this, 'sort_by_c2pa_column' ) );
 		add_filter( 'attachment_fields_to_edit', array( $this, 'add_attachment_fields' ), 10, 2 );
@@ -125,19 +126,17 @@ class C2pa_Monitor extends Abstract_Feature {
 	}
 
 	/**
-	 * Prints the CSS needed for the instant hover tooltip on the C2PA column.
+	 * Prints shared admin CSS: the hover tooltip for the Media Library column
+	 * and the label-alignment fix for the Attachment Details compat field.
 	 *
-	 * Only output on the Media Library screen (admin_head-upload.php) and only
-	 * when the experiment is enabled.
+	 * Hooked to admin_head-upload.php (Media Library + upload.php?item=<id>)
+	 * and admin_head-post.php (Edit Media screen).
 	 *
 	 * @since x.x.x
 	 *
 	 * @return void
 	 */
-	public function print_column_styles(): void {
-		if ( ! $this->is_enabled() ) {
-			return;
-		}
+	public function print_admin_styles(): void {
 		?>
 		<style>
 		[data-wpai-tooltip]{position:relative}
@@ -161,6 +160,11 @@ class C2pa_Monitor extends Abstract_Feature {
 			pointer-events:none;
 		}
 		[data-wpai-tooltip]:hover::after{display:block}
+		.compat-field-wpai_c2pa th.label,
+		.compat-field-wpai_c2pa td.field{display:table-cell;vertical-align:top}
+		.compat-field-wpai_c2pa th.label{width:33%;padding-top:0}
+		.compat-field-wpai_c2pa th.label span.alignleft{float:none;display:inline}
+		.compat-field-wpai_c2pa th.label br.clear{display:none}
 		</style>
 		<?php
 	}
@@ -174,9 +178,6 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * @return array<string, string>
 	 */
 	public function add_media_column( array $columns ): array {
-		if ( ! $this->is_enabled() ) {
-			return $columns;
-		}
 		$columns['wpai_c2pa'] = __( 'Content Credentials', 'ai' );
 		return $columns;
 	}
@@ -284,7 +285,7 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * @return void
 	 */
 	public function render_media_column( string $column_name, int $post_id ): void {
-		if ( 'wpai_c2pa' !== $column_name || ! $this->is_enabled() ) {
+		if ( 'wpai_c2pa' !== $column_name ) {
 			return;
 		}
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- get_status_html() returns pre-escaped HTML.
@@ -314,9 +315,6 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * @return array<string, mixed>
 	 */
 	public function add_attachment_fields( array $form_fields, \WP_Post $post ): array {
-		if ( ! $this->is_enabled() ) {
-			return $form_fields;
-		}
 		$form_fields['wpai_c2pa'] = array(
 			'label'        => __( 'Content Credentials', 'ai' ),
 			'input'        => 'html',
@@ -339,9 +337,6 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * @return void
 	 */
 	public function add_attachment_meta_box( \WP_Post $post ): void {
-		if ( ! $this->is_enabled() ) {
-			return;
-		}
 		add_meta_box(
 			'wpai-c2pa-monitor',
 			__( 'Content Credentials', 'ai' ),
@@ -382,9 +377,6 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * @return array<string, string|array<int, string|bool>>
 	 */
 	public function register_sortable_column( array $columns ): array {
-		if ( ! $this->is_enabled() ) {
-			return $columns;
-		}
 		// Second element `true` means the initial click sorts descending (credentials first).
 		$columns['wpai_c2pa'] = array( 'wpai_c2pa', true );
 		return $columns;
@@ -395,7 +387,8 @@ class C2pa_Monitor extends Abstract_Feature {
 	 *
 	 * Attachments with credentials (sort key = 1) appear first on a descending
 	 * sort; those with no credentials (0) come next; unscanned attachments
-	 * (no sort meta row) appear last via a separate JOIN.
+	 * (no sort meta row) appear last. A named clause with `compare => 'EXISTS'`
+	 * uses a LEFT JOIN so rows without the meta key are still returned.
 	 *
 	 * @since x.x.x
 	 *
@@ -403,22 +396,15 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * @return void
 	 */
 	public function sort_by_c2pa_column( \WP_Query $query ): void {
-		if ( ! $this->is_enabled() ) {
-			return;
-		}
-
 		if ( ! is_admin() || ! $query->is_main_query() || 'wpai_c2pa' !== $query->get( 'orderby' ) ) {
 			return;
 		}
 
-		$query->set( 'meta_key', self::SORT_META_KEY );
-		$query->set( 'orderby', 'meta_value_num' );
-		// Include attachments that have no sort meta (unscanned).
 		$query->set(
 			'meta_query',
 			array(
-				'relation' => 'OR',
-				array(
+				'relation'       => 'OR',
+				'wpai_c2pa_sort' => array(
 					'key'     => self::SORT_META_KEY,
 					'compare' => 'EXISTS',
 				),
@@ -428,6 +414,7 @@ class C2pa_Monitor extends Abstract_Feature {
 				),
 			)
 		);
+		$query->set( 'orderby', array( 'wpai_c2pa_sort' => $query->get( 'order' ) ?: 'DESC' ) );
 	}
 
 	/**
