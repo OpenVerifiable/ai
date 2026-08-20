@@ -57,6 +57,14 @@ class Format_Detector {
 	private const JPEG_APP11_MAX_SEGMENTS = 4096;
 
 	/**
+	 * Type UUID identifying a JUMBF superbox as a C2PA manifest store,
+	 * per the C2PA specification.
+	 *
+	 * @var string
+	 */
+	private const C2PA_BOX_UUID = "\x63\x32\x70\x61\x00\x11\x00\x10\x80\x00\x00\xAA\x00\x38\x9B\x71";
+
+	/**
 	 * Detects the image format from magic bytes only.
 	 *
 	 * @since x.x.x
@@ -401,8 +409,7 @@ class Format_Detector {
 		}
 
 		// Offset 16 within the slice: C2PA type UUID (16 bytes).
-		$c2pa_uuid = "\x63\x32\x70\x61\x00\x11\x00\x10\x80\x00\x00\xAA\x00\x38\x9B\x71";
-		if ( $c2pa_uuid !== substr( $peek, 16, 16 ) ) {
+		if ( self::C2PA_BOX_UUID !== substr( $peek, 16, 16 ) ) {
 			if ( -1 === fseek( $fh, $payload_offset + $payload_length, SEEK_SET ) ) {
 				return null;
 			}

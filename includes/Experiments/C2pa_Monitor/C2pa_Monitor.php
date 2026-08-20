@@ -361,11 +361,14 @@ class C2pa_Monitor extends Abstract_Feature {
 	public function render_attachment_meta_box( \WP_Post $post ): void {
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- helpers return pre-escaped HTML/text.
 		echo '<p>' . $this->get_status_html( $post->ID, false ) . '</p>';
+
 		$help = $this->get_status_help_text( $post->ID );
-		if ( '' !== $help ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- get_status_help_text() uses esc_html__().
-			echo '<p class="description">' . $help . '</p>';
+		if ( '' === $help ) {
+			return;
 		}
+
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- get_status_help_text() uses esc_html__().
+		echo '<p class="description">' . $help . '</p>';
 	}
 
 	/**
@@ -414,7 +417,11 @@ class C2pa_Monitor extends Abstract_Feature {
 				),
 			)
 		);
-		$query->set( 'orderby', array( 'wpai_c2pa_sort' => $query->get( 'order' ) ?: 'DESC' ) );
+		$order = $query->get( 'order' );
+		if ( ! is_string( $order ) || '' === $order ) {
+			$order = 'DESC';
+		}
+		$query->set( 'orderby', array( 'wpai_c2pa_sort' => $order ) );
 	}
 
 	/**
