@@ -217,7 +217,7 @@ class C2pa_Monitor extends Abstract_Feature {
 			$tooltip = $with_tooltip
 				? ' data-wpai-tooltip="' . esc_attr__( 'Unverified — credentials were detected but have not been validated. Click to open the Content Authenticity Initiative verify tool.', 'ai' ) . '"'
 				: '';
-			return '<a href="' . esc_url( 'https://verify.contentauthenticity.org/' ) . '" target="_blank" rel="noopener noreferrer"'
+			return '<a href="https://verify.contentauthenticity.org/" target="_blank" rel="noopener noreferrer"'
 				. ' style="color:#2271b1;text-decoration:none"'
 				. $tooltip . '>'
 				. '&#10003; ' . esc_html__( 'Credentials', 'ai' )

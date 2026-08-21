@@ -10,6 +10,8 @@ declare( strict_types=1 );
 
 namespace WordPress\AI\Admin;
 
+use WordPress\AI\Experiments\C2pa_Monitor\C2pa_Monitor;
+use WordPress\AI\Experiments\C2pa_Monitor\Sidecar_Writer;
 use WordPress\AI\Experiments\Key_Encryption\Secrets_Bridge;
 use WordPress\AI\Logging\AI_Request_Log_Schema;
 use WordPress\AI\Vendor\Secrets\Secrets_Provider_Encrypted_Options;
@@ -112,6 +114,7 @@ final class Uninstall {
 		self::drop_request_logs_table();
 		self::delete_options();
 		self::delete_meta();
+		self::delete_c2pa_sidecars();
 		self::delete_transients();
 		self::clear_scheduled_events();
 
@@ -221,6 +224,65 @@ final class Uninstall {
 		foreach ( $user_ids as $user_id ) {
 			delete_user_meta( (int) $user_id, self::CONNECTOR_APPROVAL_NOTICE_META );
 		}
+
+		// Post meta: the C2PA Monitor scan record and the sort helper key it
+		// mirrors. Both are written by this plugin and carry no meaning without it.
+		delete_post_meta_by_key( C2pa_Monitor::POSTMETA_KEY );
+		delete_post_meta_by_key( C2pa_Monitor::SORT_META_KEY );
+	}
+
+	/**
+	 * Deletes the C2PA Monitor sidecar files and their directory.
+	 *
+	 * Sidecars hold raw manifest bytes extracted from attachments at upload
+	 * time. The attachment originals still carry the same manifest, so nothing
+	 * is lost here that re-enabling the experiment could not re-derive. Files
+	 * this plugin did not write are left in place, and the directory itself is
+	 * only removed once it is empty.
+	 *
+	 * @since x.x.x
+	 */
+	private static function delete_c2pa_sidecars(): void {
+		$uploads = wp_upload_dir();
+
+		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
+			return;
+		}
+
+		$dir = trailingslashit( (string) $uploads['basedir'] ) . Sidecar_Writer::SUBDIR;
+
+		if ( ! is_dir( $dir ) ) {
+			return;
+		}
+
+		$sidecars = glob( trailingslashit( $dir ) . '*.c2pa' );
+
+		if ( is_array( $sidecars ) ) {
+			foreach ( $sidecars as $sidecar ) {
+				wp_delete_file( $sidecar );
+			}
+		}
+
+		// Hardening files written by Sidecar_Writer::ensure_dir().
+		foreach ( array( '.htaccess', 'index.php' ) as $hardening_file ) {
+			$path = trailingslashit( $dir ) . $hardening_file;
+
+			if ( ! is_file( $path ) ) {
+				continue;
+			}
+
+			wp_delete_file( $path );
+		}
+
+		$remaining = scandir( $dir );
+
+		// scandir() reports "." and ".." for an otherwise empty directory, so
+		// anything more than that means files the plugin did not write remain.
+		if ( ! is_array( $remaining ) || 2 !== count( $remaining ) ) {
+			return;
+		}
+
+		rmdir( $dir ); // phpcs:ignore WordPress.WP.AlternativeFunctions.rmdir_rmdir, WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir -- Removing a directory this plugin created; WP_Filesystem has no uninstall-time guarantee.
 	}
 
 	/**

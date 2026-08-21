@@ -6,8 +6,8 @@
  */
 
 declare( strict_types=1 );
-// phpcs:disable WordPress.WP.AlternativeFunctions
-// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions
+// phpcs:disable WordPress.WP.AlternativeFunctions -- Sidecars are written with file_put_contents( ..., LOCK_EX ) because the write must be atomic and byte-exact; WP_Filesystem offers no locking equivalent and is not guaranteed to be initialised during an upload request.
+// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions -- VIP Go: every path written here is under wp_upload_dir()['basedir'] . '/' . self::SUBDIR.
 namespace WordPress\AI\Experiments\C2pa_Monitor;
 
 if ( ! defined( 'ABSPATH' ) ) {

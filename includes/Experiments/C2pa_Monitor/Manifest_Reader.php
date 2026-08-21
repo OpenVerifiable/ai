@@ -6,8 +6,8 @@
  */
 
 declare( strict_types=1 );
-// phpcs:disable WordPress.WP.AlternativeFunctions
-// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions
+// phpcs:disable WordPress.WP.AlternativeFunctions -- Manifests are read with streaming fopen/fread/fseek so the bytes can be hashed in flight; WP_Filesystem::get_contents() would pull the whole file into memory, which MAX_MANIFEST_BYTES exists to avoid.
+// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions -- VIP Go: the only paths read here come from wp_get_original_image_path() for the attachment being processed.
 namespace WordPress\AI\Experiments\C2pa_Monitor;
 
 if ( ! defined( 'ABSPATH' ) ) {

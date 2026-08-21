@@ -10,7 +10,7 @@
 
 declare( strict_types=1 );
 // phpcs:disable WordPress.WP.AlternativeFunctions -- See project PHPCS: streaming fopen/fread/fseek for C2PA detection (paths from wp_get_original_image_path), not replaceable with WP_Filesystem::get_contents without full-file memory.
-// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions -- VIP Go: reads/writes use paths under wp_upload_dir() (sidecar) or the attachmentâ€™s source file only.
+// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions -- VIP Go: reads/writes use paths under wp_upload_dir() (sidecar) or the attachment's source file only.
 namespace WordPress\AI\Experiments\C2pa_Monitor;
 
 if ( ! defined( 'ABSPATH' ) ) {
