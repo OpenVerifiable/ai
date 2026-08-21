@@ -282,7 +282,21 @@ final class Uninstall {
 			return;
 		}
 
-		rmdir( $dir ); // phpcs:ignore WordPress.WP.AlternativeFunctions.rmdir_rmdir, WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir -- Removing a directory this plugin created; WP_Filesystem has no uninstall-time guarantee.
+		global $wp_filesystem;
+
+		if ( ! function_exists( 'WP_Filesystem' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+
+		WP_Filesystem();
+
+		// Leaving the empty directory behind is harmless, so a filesystem that
+		// refuses to initialise is not worth failing the uninstall over.
+		if ( ! $wp_filesystem instanceof \WP_Filesystem_Base ) {
+			return;
+		}
+
+		$wp_filesystem->delete( $dir, false, 'd' );
 	}
 
 	/**
