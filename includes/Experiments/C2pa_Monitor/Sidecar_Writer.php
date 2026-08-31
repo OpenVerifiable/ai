@@ -66,6 +66,42 @@ class Sidecar_Writer {
 	}
 
 	/**
+	 * Deletes the sidecar file(s) for a given attachment.
+	 *
+	 * The glob pattern is `<id>.<anything>.c2pa`. The literal `.` after the ID
+	 * prevents `12.*.c2pa` from matching `123.jpeg.c2pa`.
+	 *
+	 * Non-fatal: if the directory does not exist, or no matching files are
+	 * found, this is a no-op.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param int $attachment_id Attachment ID whose sidecar files should be removed.
+	 * @return void
+	 */
+	public function delete( int $attachment_id ): void {
+		$uploads = wp_upload_dir( null, false );
+		if ( ! is_array( $uploads ) || empty( $uploads['basedir'] ) ) {
+			return;
+		}
+
+		$dir = trailingslashit( (string) $uploads['basedir'] ) . self::SUBDIR;
+		if ( ! is_dir( $dir ) ) {
+			return;
+		}
+
+		$pattern = trailingslashit( $dir ) . $attachment_id . '.*.c2pa';
+		$files   = glob( $pattern );
+		if ( ! is_array( $files ) ) {
+			return;
+		}
+
+		foreach ( $files as $file ) {
+			wp_delete_file( $file );
+		}
+	}
+
+	/**
 	 * Ensures the sidecar subdirectory exists with hardening files.
 	 *
 	 * @since x.x.x

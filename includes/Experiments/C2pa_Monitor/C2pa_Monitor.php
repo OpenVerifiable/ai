@@ -114,59 +114,71 @@ class C2pa_Monitor extends Abstract_Feature {
 	 */
 	public function register(): void {
 		add_action( 'add_attachment', array( $this, 'capture_for_attachment' ), 20, 1 );
+		add_action( 'delete_attachment', array( $this, 'delete_sidecar_for_attachment' ), 10, 1 );
 		add_filter( 'manage_media_columns', array( $this, 'add_media_column' ) );
 		add_filter( 'manage_upload_columns', array( $this, 'add_media_column' ) );
 		add_action( 'manage_media_custom_column', array( $this, 'render_media_column' ), 10, 2 );
-		add_action( 'admin_head-upload.php', array( $this, 'print_admin_styles' ) );
-		add_action( 'admin_head-post.php', array( $this, 'print_admin_styles' ) );
+		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_styles' ) );
 		add_filter( 'manage_upload_sortable_columns', array( $this, 'register_sortable_column' ) );
-		add_action( 'pre_get_posts', array( $this, 'sort_by_c2pa_column' ) );
+		add_filter( 'posts_clauses', array( $this, 'sort_by_c2pa_column' ), 10, 2 );
 		add_filter( 'attachment_fields_to_edit', array( $this, 'add_attachment_fields' ), 10, 2 );
 		add_action( 'add_meta_boxes_attachment', array( $this, 'add_attachment_meta_box' ) );
 	}
 
 	/**
-	 * Prints shared admin CSS: the hover tooltip for the Media Library column
-	 * and the label-alignment fix for the Attachment Details compat field.
+	 * Enqueues shared admin CSS on every admin page.
 	 *
-	 * Hooked to admin_head-upload.php (Media Library + upload.php?item=<id>)
-	 * and admin_head-post.php (Edit Media screen).
+	 * Using admin_enqueue_scripts (rather than admin_head-upload.php /
+	 * admin_head-post.php) ensures the styles are present whenever the media
+	 * modal is opened — including from the block editor, the widgets screen,
+	 * the customizer, and any third-party admin page that embeds the media
+	 * library frame.
+	 *
+	 * wp_register_style with a false src is the canonical way to attach
+	 * inline-only styles without registering a real file.
 	 *
 	 * @since x.x.x
 	 *
 	 * @return void
 	 */
-	public function print_admin_styles(): void {
-		?>
-		<style>
-		[data-wpai-tooltip]{position:relative}
-		[data-wpai-tooltip]::after{
-			content:attr(data-wpai-tooltip);
-			display:none;
-			position:absolute;
-			bottom:calc(100% + 6px);
-			left:50%;
-			transform:translateX(-50%);
-			background:#1d2327;
-			color:#fff;
-			font-size:12px;
-			line-height:1.4;
-			padding:5px 8px;
-			border-radius:3px;
-			white-space:normal;
-			width:200px;
-			text-align:center;
-			z-index:9999;
-			pointer-events:none;
-		}
-		[data-wpai-tooltip]:hover::after{display:block}
-		.compat-field-wpai_c2pa th.label,
-		.compat-field-wpai_c2pa td.field{display:table-cell;vertical-align:top}
-		.compat-field-wpai_c2pa th.label{width:33%;padding-top:0}
-		.compat-field-wpai_c2pa th.label span.alignleft{float:none;display:inline}
-		.compat-field-wpai_c2pa th.label br.clear{display:none}
-		</style>
-		<?php
+	public function enqueue_admin_styles(): void {
+		// phpcs:ignore WordPress.WP.EnqueuedResourceParameters.NoExplicitVersion -- No real resource; version is irrelevant for inline-only styles.
+		wp_register_style( 'wpai-c2pa-monitor', false, array(), false );
+		wp_enqueue_style( 'wpai-c2pa-monitor' );
+		wp_add_inline_style(
+			'wpai-c2pa-monitor',
+			// Tooltip for the compact Media Library list-table column.
+			'[data-wpai-tooltip]{position:relative}'
+			. '[data-wpai-tooltip]::after{'
+			. 'content:attr(data-wpai-tooltip);'
+			. 'display:none;'
+			. 'position:absolute;'
+			. 'bottom:calc(100% + 6px);'
+			. 'left:50%;'
+			. 'transform:translateX(-50%);'
+			. 'background:#1d2327;'
+			. 'color:#fff;'
+			. 'font-size:12px;'
+			. 'line-height:1.4;'
+			. 'padding:5px 8px;'
+			. 'border-radius:3px;'
+			. 'white-space:normal;'
+			. 'width:200px;'
+			. 'text-align:center;'
+			. 'z-index:9999;'
+			. 'pointer-events:none;'
+			. '}'
+			. '[data-wpai-tooltip]:hover::after{display:block}'
+			// Alignment fix for the compat field in the Attachment Details modal
+			// and the upload.php?item=<id> screen. The media modal wraps compat
+			// fields in a table row; without top alignment the content floats to
+			// the vertical midpoint of the row when there is a label alongside it.
+			. '.compat-field-wpai_c2pa th.label,'
+			. '.compat-field-wpai_c2pa td.field{display:table-cell;vertical-align:top}'
+			. '.compat-field-wpai_c2pa th.label{width:33%;padding-top:0}'
+			. '.compat-field-wpai_c2pa th.label span.alignleft{float:none;display:inline}'
+			. '.compat-field-wpai_c2pa th.label br.clear{display:none}'
+		);
 	}
 
 	/**
@@ -288,6 +300,10 @@ class C2pa_Monitor extends Abstract_Feature {
 		if ( 'wpai_c2pa' !== $column_name ) {
 			return;
 		}
+
+		if ( ! wp_attachment_is_image( $post_id ) ) {
+			return;
+		}
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- get_status_html() returns pre-escaped HTML.
 		echo $this->get_status_html( $post_id );
 	}
@@ -315,6 +331,10 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * @return array<string, mixed>
 	 */
 	public function add_attachment_fields( array $form_fields, \WP_Post $post ): array {
+		if ( ! wp_attachment_is_image( $post->ID ) ) {
+			return $form_fields;
+		}
+
 		$form_fields['wpai_c2pa'] = array(
 			'label'        => __( 'Content Credentials', 'ai' ),
 			'input'        => 'html',
@@ -337,6 +357,10 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * @return void
 	 */
 	public function add_attachment_meta_box( \WP_Post $post ): void {
+		if ( ! wp_attachment_is_image( $post->ID ) ) {
+			return;
+		}
+
 		add_meta_box(
 			'wpai-c2pa-monitor',
 			__( 'Content Credentials', 'ai' ),
@@ -398,30 +422,75 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * @param \WP_Query $query The current query.
 	 * @return void
 	 */
-	public function sort_by_c2pa_column( \WP_Query $query ): void {
-		if ( ! is_admin() || ! $query->is_main_query() || 'wpai_c2pa' !== $query->get( 'orderby' ) ) {
-			return;
+	/**
+	 * Adds an explicit LEFT JOIN + COALESCE ORDER BY for the Content Credentials column.
+	 *
+	 * Hooked to `posts_clauses` (not `pre_get_posts`) so we can inject a named
+	 * table alias directly into the SQL rather than going through `WP_Meta_Query`.
+	 *
+	 * The `WP_Meta_Query` approach (EXISTS + NOT EXISTS with `relation => OR`)
+	 * rewrites every join to LEFT JOIN and adds DISTINCT, causing unscanned
+	 * attachments — which have no `_wpai_c2pa_present` row but do have many
+	 * other postmeta rows — to produce non-deterministic sort values (WordPress
+	 * reads `wp_postmeta.meta_value` from an arbitrary row, often a serialised
+	 * metadata blob, which sorts above '1' as a string).
+	 *
+	 * The LEFT JOIN here carries the meta_key condition in the ON clause, so
+	 * every attachment gets exactly one joined row. COALESCE maps unscanned
+	 * attachments (NULL) to -1, placing them last on a DESC sort and first on
+	 * ASC. The handler is only active on the Media Library list screen.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param array<string, string> $clauses   SQL clause fragments.
+	 * @param \WP_Query             $query     The current query.
+	 * @return array<string, string>
+	 */
+	public function sort_by_c2pa_column( array $clauses, \WP_Query $query ): array {
+		if (
+			! is_admin()
+			|| ! $query->is_main_query()
+			|| 'wpai_c2pa' !== $query->get( 'orderby' )
+			|| ! function_exists( 'get_current_screen' )
+			|| ! ( get_current_screen() instanceof \WP_Screen )
+			|| 'upload' !== get_current_screen()->base
+		) {
+			return $clauses;
 		}
 
-		$query->set(
-			'meta_query',
-			array(
-				'relation'       => 'OR',
-				'wpai_c2pa_sort' => array(
-					'key'     => self::SORT_META_KEY,
-					'compare' => 'EXISTS',
-				),
-				array(
-					'key'     => self::SORT_META_KEY,
-					'compare' => 'NOT EXISTS',
-				),
-			)
-		);
+		global $wpdb;
+
 		$order = $query->get( 'order' );
 		if ( ! is_string( $order ) || '' === $order ) {
 			$order = 'DESC';
 		}
-		$query->set( 'orderby', array( 'wpai_c2pa_sort' => $order ) );
+		$order = strtoupper( $order ) === 'ASC' ? 'ASC' : 'DESC';
+
+		$clauses['join'] .= $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- table names are trusted WordPress globals.
+			" LEFT JOIN {$wpdb->postmeta} AS wpai_c2pa_sort ON ( {$wpdb->posts}.ID = wpai_c2pa_sort.post_id AND wpai_c2pa_sort.meta_key = %s )",
+			self::SORT_META_KEY
+		);
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- order validated to ASC/DESC above; table names trusted globals.
+		$clauses['orderby'] = "COALESCE( wpai_c2pa_sort.meta_value + 0, -1 ) {$order}, {$wpdb->posts}.ID DESC";
+
+		return $clauses;
+	}
+
+	/**
+	 * Removes the sidecar file when the attachment is deleted from the Media Library.
+	 *
+	 * Postmeta is removed automatically by WordPress core on delete. This handler
+	 * cleans up the corresponding file in the ai-c2pa uploads subdirectory.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param int $attachment_id The attachment post ID that is being deleted.
+	 * @return void
+	 */
+	public function delete_sidecar_for_attachment( int $attachment_id ): void {
+		( new Sidecar_Writer() )->delete( $attachment_id );
 	}
 
 	/**
@@ -515,21 +584,31 @@ class C2pa_Monitor extends Abstract_Feature {
 				return;
 			}
 
-			$writer = new Sidecar_Writer();
-			$rel    = $writer->write( $attachment_id, $manifest );
-
+			// Record the detection result before attempting the sidecar write.
+			// A write failure (disk full, permissions) must not erase the fact
+			// that a manifest was successfully found and read.
 			$c2pa = array(
 				'present'               => true,
 				'format'                => $manifest->format,
 				'container'             => $manifest->container,
 				'manifest_sha256'       => $manifest->sha256,
 				'manifest_length'       => $manifest->bytes_length,
-				'sidecar_path_relative' => $rel,
+				'sidecar_path_relative' => null,
 				'decoded'               => null,
 			);
+
+			try {
+				$writer                        = new Sidecar_Writer();
+				$c2pa['sidecar_path_relative'] = $writer->write( $attachment_id, $manifest );
+			} catch ( \RuntimeException $e ) {
+				$errors[] = array(
+					'stage'   => 'sidecar_write',
+					'message' => $e->getMessage(),
+				);
+			}
 		} catch ( \RuntimeException $e ) {
 			$errors[] = array(
-				'stage'   => 'sidecar_write',
+				'stage'   => 'scan',
 				'message' => $e->getMessage(),
 			);
 		} catch ( \Throwable $e ) {

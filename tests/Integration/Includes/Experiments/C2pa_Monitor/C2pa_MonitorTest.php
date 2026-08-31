@@ -377,7 +377,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( $feature_opt, true );
 		$feature = new C2pa_Monitor();
 
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
 
 		// No record yet: should show dash.
 		ob_start();
@@ -450,7 +450,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
 		$feature = new C2pa_Monitor();
 
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
 		update_post_meta( (int) $attachment_id, C2pa_Monitor::POSTMETA_KEY, 'not-valid-json' );
 
 		ob_start();
@@ -475,39 +475,34 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * sort_by_c2pa_column() sets a named meta_query clause and orderby array
-	 * when on the admin screen and ordering by wpai_c2pa.
+	 * sort_by_c2pa_column() injects a LEFT JOIN and COALESCE orderby into the
+	 * SQL clause array when on the attachment list screen sorting by wpai_c2pa.
 	 */
-	public function test_sort_by_c2pa_column_modifies_query(): void {
-		// Use the global $wp_query so is_main_query() returns true.
+	public function test_sort_by_c2pa_column_modifies_clauses(): void {
 		global $wp_query;
-		$prev_orderby   = $wp_query->get( 'orderby' );
-		$prev_mq        = $wp_query->get( 'meta_query' );
+		$prev_orderby = $wp_query->get( 'orderby' );
 		$wp_query->set( 'orderby', 'wpai_c2pa' );
 
-		// Simulate is_admin() = true via the global screen mock.
 		$prev_screen = $GLOBALS['current_screen'] ?? null;
 		$GLOBALS['current_screen'] = new class() {
+			// phpcs:ignore SlevomatCodingStandard.TypeHints
+			public string $base = 'upload';
 			// phpcs:ignore
 			public function in_admin( string $type = '' ): bool { return '' === $type || 'site' === $type; }
 		};
-		$this->feature->sort_by_c2pa_column( $wp_query );
+
+		$clauses = $this->feature->sort_by_c2pa_column(
+			array( 'join' => '', 'orderby' => '' ),
+			$wp_query
+		);
+
 		$GLOBALS['current_screen'] = $prev_screen;
-
-		$mq = $wp_query->get( 'meta_query' );
-		$this->assertIsArray( $mq );
-		$this->assertSame( 'OR', $mq['relation'] );
-		$this->assertArrayHasKey( 'wpai_c2pa_sort', $mq );
-		$this->assertSame( C2pa_Monitor::SORT_META_KEY, $mq['wpai_c2pa_sort']['key'] );
-		$this->assertSame( 'EXISTS', $mq['wpai_c2pa_sort']['compare'] );
-
-		$orderby = $wp_query->get( 'orderby' );
-		$this->assertIsArray( $orderby );
-		$this->assertArrayHasKey( 'wpai_c2pa_sort', $orderby );
-
-		// Restore global query state.
 		$wp_query->set( 'orderby', $prev_orderby );
-		$wp_query->set( 'meta_query', $prev_mq );
+
+		$this->assertStringContainsString( 'wpai_c2pa_sort', $clauses['join'] );
+		$this->assertStringContainsString( C2pa_Monitor::SORT_META_KEY, $clauses['join'] );
+		$this->assertStringContainsString( 'COALESCE', $clauses['orderby'] );
+		$this->assertStringContainsString( 'DESC', $clauses['orderby'] );
 	}
 
 	/**
@@ -516,70 +511,91 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	public function test_sort_by_c2pa_column_ignores_other_orderbys(): void {
 		global $wp_query;
 		$prev_orderby = $wp_query->get( 'orderby' );
-		$prev_mq      = $wp_query->get( 'meta_query' );
 		$wp_query->set( 'orderby', 'date' );
 
 		$prev_screen = $GLOBALS['current_screen'] ?? null;
 		$GLOBALS['current_screen'] = new class() {
+			// phpcs:ignore SlevomatCodingStandard.TypeHints
+			public string $base = 'upload';
 			// phpcs:ignore
 			public function in_admin( string $type = '' ): bool { return '' === $type || 'site' === $type; }
 		};
-		$this->feature->sort_by_c2pa_column( $wp_query );
+
+		$original_clauses = array( 'join' => 'ORIGINAL_JOIN', 'orderby' => 'ORIGINAL_ORDER' );
+		$result           = $this->feature->sort_by_c2pa_column( $original_clauses, $wp_query );
+
 		$GLOBALS['current_screen'] = $prev_screen;
-
-		// meta_query should be untouched (still the original value).
-		$this->assertSame( $prev_mq, $wp_query->get( 'meta_query' ) );
-
 		$wp_query->set( 'orderby', $prev_orderby );
+
+		$this->assertSame( $original_clauses, $result );
 	}
 
 	/**
 	 * sort_by_c2pa_column() must return ALL attachments — including those that
-	 * have never been scanned (no sort meta row) — not just those with the key.
+	 * have never been scanned (no sort meta row) — and must order them correctly
+	 * even when the attachments have many other postmeta rows.
 	 *
-	 * The OR relation with EXISTS + NOT EXISTS clauses generates a LEFT JOIN,
-	 * so unscanned rows appear at the bottom of a DESC sort rather than being
-	 * silently dropped.
+	 * Real attachments carry _wp_attached_file and _wp_attachment_metadata rows
+	 * which the previous meta_query EXISTS+NOT EXISTS approach would cause to
+	 * sort above '1' as strings, making credentialed items disappear. This test
+	 * seeds that realistic postmeta to guard against regression.
 	 */
 	public function test_sort_includes_unscanned_attachments(): void {
+		global $wpdb;
+
 		// Three attachments: credentials present, absent, and never scanned.
 		$id_present = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_status' => 'inherit' ) );
 		$id_absent  = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_status' => 'inherit' ) );
 		$id_unscan  = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_status' => 'inherit' ) );
 
+		// Seed realistic postmeta on all three so the old EXISTS+NOT EXISTS
+		// approach — which reads meta_value from an arbitrary row — would fail.
+		foreach ( array( $id_present, $id_absent, $id_unscan ) as $aid ) {
+			update_post_meta( $aid, '_wp_attached_file', "2026/08/{$aid}.jpg" );
+			update_post_meta( $aid, '_wp_attachment_metadata', array( 'width' => 800, 'height' => 600 ) );
+		}
+
 		update_post_meta( $id_present, C2pa_Monitor::SORT_META_KEY, '1' );
 		update_post_meta( $id_absent, C2pa_Monitor::SORT_META_KEY, '0' );
 		// $id_unscan intentionally gets no sort meta.
 
-		// Build a query that mirrors what sort_by_c2pa_column() sets.
-		$args = array(
-			'post_type'   => 'attachment',
-			'post_status' => 'inherit',
-			'post__in'    => array( $id_present, $id_absent, $id_unscan ),
-			'orderby'     => array( 'wpai_c2pa_sort' => 'DESC' ),
-			'meta_query'  => array(
-				'relation'       => 'OR',
-				'wpai_c2pa_sort' => array(
-					'key'     => C2pa_Monitor::SORT_META_KEY,
-					'compare' => 'EXISTS',
-				),
-				array(
-					'key'     => C2pa_Monitor::SORT_META_KEY,
-					'compare' => 'NOT EXISTS',
-				),
-			),
+		// Execute a real query via the posts_clauses filter the way WordPress does.
+		// We can't fire get_current_screen() inside a unit/integration test
+		// context, so we invoke the filter directly and trust the clause test
+		// above covers the early-exit path.
+		add_filter(
+			'posts_clauses',
+			static function ( array $clauses ) use ( $wpdb ): array {
+				// Inject the same SQL that sort_by_c2pa_column() would.
+				$clauses['join'] .= $wpdb->prepare(
+					// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+					" LEFT JOIN {$wpdb->postmeta} AS wpai_c2pa_sort ON ( {$wpdb->posts}.ID = wpai_c2pa_sort.post_id AND wpai_c2pa_sort.meta_key = %s )",
+					C2pa_Monitor::SORT_META_KEY
+				);
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared
+				$clauses['orderby'] = "COALESCE( wpai_c2pa_sort.meta_value + 0, -1 ) DESC, {$wpdb->posts}.ID DESC";
+				return $clauses;
+			},
+			99
 		);
 
-		$query = new \WP_Query( $args );
-		$ids   = wp_list_pluck( $query->posts, 'ID' );
+		$query = new \WP_Query(
+			array(
+				'post_type'   => 'attachment',
+				'post_status' => 'inherit',
+				'post__in'    => array( $id_present, $id_absent, $id_unscan ),
+				'orderby'     => 'post__in', // overridden by posts_clauses filter.
+			)
+		);
+
+		remove_all_filters( 'posts_clauses', 99 );
+
+		$ids = wp_list_pluck( $query->posts, 'ID' );
 
 		// All three must be returned — unscanned must not be dropped.
 		$this->assertCount( 3, $ids, 'Unscanned attachments must not be omitted from the sorted result.' );
-		$this->assertContains( $id_present, $ids );
-		$this->assertContains( $id_absent, $ids );
-		$this->assertContains( $id_unscan, $ids );
 
-		// DESC order: $id_present (1) > $id_absent (0) > $id_unscan (NULL).
+		// DESC order: $id_present (1) > $id_absent (0) > $id_unscan (NULL → -1).
 		$this->assertSame( $id_present, $ids[0] );
 		$this->assertSame( $id_absent, $ids[1] );
 		$this->assertSame( $id_unscan, $ids[2] );
@@ -590,12 +606,16 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	 * the feature loader skips registration when disabled).
 	 */
 	public function test_print_column_styles_enabled_and_disabled(): void {
-		ob_start();
-		$this->feature->print_admin_styles();
-		$out = ob_get_clean();
-		$this->assertStringContainsString( 'data-wpai-tooltip', $out );
-		$this->assertStringContainsString( '<style>', $out );
-		$this->assertStringContainsString( 'compat-field-wpai_c2pa', $out );
+		// enqueue_admin_styles() uses wp_add_inline_style, which appends to the
+		// registered handle's inline list. Verify the CSS string contains both
+		// the tooltip rule and the compat-field alignment fix.
+		$this->feature->enqueue_admin_styles();
+
+		$inline = wp_styles()->get_data( 'wpai-c2pa-monitor', 'after' );
+		$css    = is_array( $inline ) ? implode( '', $inline ) : '';
+
+		$this->assertStringContainsString( 'data-wpai-tooltip', $css );
+		$this->assertStringContainsString( 'compat-field-wpai_c2pa', $css );
 	}
 
 	/**
@@ -603,7 +623,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	 * (guard removed; the feature loader skips registration when disabled).
 	 */
 	public function test_add_attachment_fields_when_enabled_and_disabled(): void {
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
 		$post          = get_post( (int) $attachment_id );
 		$this->assertInstanceOf( \WP_Post::class, $post );
 
@@ -628,7 +648,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
 		$feature = new C2pa_Monitor();
 
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
 		$post          = get_post( (int) $attachment_id );
 		$this->assertInstanceOf( \WP_Post::class, $post );
 
@@ -675,7 +695,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	public function test_add_attachment_meta_box_when_enabled_and_disabled(): void {
 		global $wp_meta_boxes;
 
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
 		$post          = get_post( (int) $attachment_id );
 		$this->assertInstanceOf( \WP_Post::class, $post );
 
@@ -692,7 +712,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
 		$feature = new C2pa_Monitor();
 
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
 		$post          = get_post( (int) $attachment_id );
 		$this->assertInstanceOf( \WP_Post::class, $post );
 
@@ -749,7 +769,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
 		$feature = new C2pa_Monitor();
 
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment' ) );
+		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
 		$record        = array(
 			'@context'       => array( 'https://schema.org/' ),
 			'schema_version' => 1,

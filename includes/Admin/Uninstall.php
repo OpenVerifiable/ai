@@ -243,7 +243,8 @@ final class Uninstall {
 	 * @since x.x.x
 	 */
 	private static function delete_c2pa_sidecars(): void {
-		$uploads = wp_upload_dir();
+		// Pass false so wp_upload_dir() never creates directories during cleanup.
+		$uploads = wp_upload_dir( null, false );
 
 		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
 			return;

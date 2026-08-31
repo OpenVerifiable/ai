@@ -31,7 +31,7 @@ class Record {
 	/**
 	 * Required top-level keys for a valid record.
 	 *
-	 * @var string[]
+	 * @var list<string>
 	 */
 	private const REQUIRED_KEYS = array( // phpcs:ignore SlevomatCodingStandard.Classes.DisallowMultiConstantDefinition -- List of top-level postmeta record keys, same pattern as Experiments::EXPERIMENT_CLASSES.
 		'@context',
