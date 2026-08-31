@@ -460,6 +460,12 @@ class C2pa_Monitor extends Abstract_Feature {
 
 		global $wpdb;
 
+		// Appending the join a second time would produce a duplicate table
+		// alias and fail the whole query, so bail if it is already present.
+		if ( isset( $clauses['join'] ) && false !== strpos( $clauses['join'], 'wpai_c2pa_sort' ) ) {
+			return $clauses;
+		}
+
 		$order = $query->get( 'order' );
 		if ( ! is_string( $order ) || '' === $order ) {
 			$order = 'DESC';

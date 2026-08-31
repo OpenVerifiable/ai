@@ -506,6 +506,39 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * sort_by_c2pa_column() must not append its LEFT JOIN twice.
+	 *
+	 * A duplicate `wpai_c2pa_sort` alias makes MySQL reject the entire query
+	 * with "Not unique table/alias", which empties the Media Library rather
+	 * than merely mis-sorting it.
+	 */
+	public function test_sort_by_c2pa_column_is_idempotent(): void {
+		global $wp_query;
+		$prev_orderby = $wp_query->get( 'orderby' );
+		$wp_query->set( 'orderby', 'wpai_c2pa' );
+
+		$prev_screen = $GLOBALS['current_screen'] ?? null;
+		$GLOBALS['current_screen'] = new class() {
+			// phpcs:ignore SlevomatCodingStandard.TypeHints
+			public string $base = 'upload';
+			// phpcs:ignore
+			public function in_admin( string $type = '' ): bool { return '' === $type || 'site' === $type; }
+		};
+
+		$first  = $this->feature->sort_by_c2pa_column( array( 'join' => '', 'orderby' => '' ), $wp_query );
+		$second = $this->feature->sort_by_c2pa_column( $first, $wp_query );
+
+		$GLOBALS['current_screen'] = $prev_screen;
+		$wp_query->set( 'orderby', $prev_orderby );
+
+		$this->assertSame(
+			1,
+			substr_count( $second['join'], 'wpai_c2pa_sort ON' ),
+			'The sort join must only ever be appended once.'
+		);
+	}
+
+	/**
 	 * sort_by_c2pa_column() is a no-op when ordering by a different column.
 	 */
 	public function test_sort_by_c2pa_column_ignores_other_orderbys(): void {
