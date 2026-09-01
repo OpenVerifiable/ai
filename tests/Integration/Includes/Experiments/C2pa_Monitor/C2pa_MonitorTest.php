@@ -55,6 +55,9 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	 * {@inheritDoc}
 	 */
 	public function tearDown(): void {
+		// The sort tests switch to the admin `upload` screen, which flips
+		// is_admin() for anything that runs afterwards.
+		set_current_screen( 'front' );
 		remove_filter( 'intermediate_image_sizes_advanced', '__return_empty_array' );
 		if ( '' !== $this->tmp_dir && is_dir( $this->tmp_dir ) ) {
 			foreach ( glob( $this->tmp_dir . '/*' ) ?: array() as $f ) {
@@ -80,6 +83,42 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 			}
 		}
 		parent::tearDown();
+	}
+
+	/**
+	 * Creates an attachment that wp_attachment_is_image() recognises.
+	 *
+	 * The C2PA UI is gated to images, and wp_attachment_is() returns false
+	 * unless get_attached_file() resolves, so an image mime type alone is not
+	 * enough — the _wp_attached_file row has to exist too.
+	 *
+	 * @param array<string, mixed> $args Optional overrides for wp_insert_post().
+	 * @return int Attachment ID.
+	 */
+	private function create_image_attachment( array $args = array() ): int {
+		$attachment_id = (int) $this->factory->post->create(
+			array_merge(
+				array(
+					'post_type'      => 'attachment',
+					'post_status'    => 'inherit',
+					'post_mime_type' => 'image/jpeg',
+				),
+				$args
+			)
+		);
+		update_post_meta( $attachment_id, '_wp_attached_file', "2026/08/{$attachment_id}.jpg" );
+
+		return $attachment_id;
+	}
+
+	/**
+	 * Points get_current_screen() at the Media Library list table.
+	 *
+	 * sort_by_c2pa_column() requires a real WP_Screen whose base is `upload`,
+	 * and is_admin() reads through the same global.
+	 */
+	private function set_upload_screen(): void {
+		set_current_screen( 'upload' );
 	}
 
 	/**
@@ -377,7 +416,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( $feature_opt, true );
 		$feature = new C2pa_Monitor();
 
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
+		$attachment_id = $this->create_image_attachment();
 
 		// No record yet: should show dash.
 		ob_start();
@@ -450,7 +489,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
 		$feature = new C2pa_Monitor();
 
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
+		$attachment_id = $this->create_image_attachment();
 		update_post_meta( (int) $attachment_id, C2pa_Monitor::POSTMETA_KEY, 'not-valid-json' );
 
 		ob_start();
@@ -479,25 +518,14 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	 * SQL clause array when on the attachment list screen sorting by wpai_c2pa.
 	 */
 	public function test_sort_by_c2pa_column_modifies_clauses(): void {
-		global $wp_query;
-		$prev_orderby = $wp_query->get( 'orderby' );
-		$wp_query->set( 'orderby', 'wpai_c2pa' );
-
-		$prev_screen = $GLOBALS['current_screen'] ?? null;
-		$GLOBALS['current_screen'] = new class() {
-			// phpcs:ignore SlevomatCodingStandard.TypeHints
-			public string $base = 'upload';
-			// phpcs:ignore
-			public function in_admin( string $type = '' ): bool { return '' === $type || 'site' === $type; }
-		};
+		global $wp_the_query;
+		$this->set_upload_screen();
+		$wp_the_query->set( 'orderby', 'wpai_c2pa' );
 
 		$clauses = $this->feature->sort_by_c2pa_column(
 			array( 'join' => '', 'orderby' => '' ),
-			$wp_query
+			$wp_the_query
 		);
-
-		$GLOBALS['current_screen'] = $prev_screen;
-		$wp_query->set( 'orderby', $prev_orderby );
 
 		$this->assertStringContainsString( 'wpai_c2pa_sort', $clauses['join'] );
 		$this->assertStringContainsString( C2pa_Monitor::SORT_META_KEY, $clauses['join'] );
@@ -513,23 +541,12 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	 * than merely mis-sorting it.
 	 */
 	public function test_sort_by_c2pa_column_is_idempotent(): void {
-		global $wp_query;
-		$prev_orderby = $wp_query->get( 'orderby' );
-		$wp_query->set( 'orderby', 'wpai_c2pa' );
+		global $wp_the_query;
+		$this->set_upload_screen();
+		$wp_the_query->set( 'orderby', 'wpai_c2pa' );
 
-		$prev_screen = $GLOBALS['current_screen'] ?? null;
-		$GLOBALS['current_screen'] = new class() {
-			// phpcs:ignore SlevomatCodingStandard.TypeHints
-			public string $base = 'upload';
-			// phpcs:ignore
-			public function in_admin( string $type = '' ): bool { return '' === $type || 'site' === $type; }
-		};
-
-		$first  = $this->feature->sort_by_c2pa_column( array( 'join' => '', 'orderby' => '' ), $wp_query );
-		$second = $this->feature->sort_by_c2pa_column( $first, $wp_query );
-
-		$GLOBALS['current_screen'] = $prev_screen;
-		$wp_query->set( 'orderby', $prev_orderby );
+		$first  = $this->feature->sort_by_c2pa_column( array( 'join' => '', 'orderby' => '' ), $wp_the_query );
+		$second = $this->feature->sort_by_c2pa_column( $first, $wp_the_query );
 
 		$this->assertSame(
 			1,
@@ -542,23 +559,12 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	 * sort_by_c2pa_column() is a no-op when ordering by a different column.
 	 */
 	public function test_sort_by_c2pa_column_ignores_other_orderbys(): void {
-		global $wp_query;
-		$prev_orderby = $wp_query->get( 'orderby' );
-		$wp_query->set( 'orderby', 'date' );
-
-		$prev_screen = $GLOBALS['current_screen'] ?? null;
-		$GLOBALS['current_screen'] = new class() {
-			// phpcs:ignore SlevomatCodingStandard.TypeHints
-			public string $base = 'upload';
-			// phpcs:ignore
-			public function in_admin( string $type = '' ): bool { return '' === $type || 'site' === $type; }
-		};
+		global $wp_the_query;
+		$this->set_upload_screen();
+		$wp_the_query->set( 'orderby', 'date' );
 
 		$original_clauses = array( 'join' => 'ORIGINAL_JOIN', 'orderby' => 'ORIGINAL_ORDER' );
-		$result           = $this->feature->sort_by_c2pa_column( $original_clauses, $wp_query );
-
-		$GLOBALS['current_screen'] = $prev_screen;
-		$wp_query->set( 'orderby', $prev_orderby );
+		$result           = $this->feature->sort_by_c2pa_column( $original_clauses, $wp_the_query );
 
 		$this->assertSame( $original_clauses, $result );
 	}
@@ -574,8 +580,6 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	 * seeds that realistic postmeta to guard against regression.
 	 */
 	public function test_sort_includes_unscanned_attachments(): void {
-		global $wpdb;
-
 		// Three attachments: credentials present, absent, and never scanned.
 		$id_present = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_status' => 'inherit' ) );
 		$id_absent  = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_status' => 'inherit' ) );
@@ -592,36 +596,30 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_post_meta( $id_absent, C2pa_Monitor::SORT_META_KEY, '0' );
 		// $id_unscan intentionally gets no sort meta.
 
-		// Execute a real query via the posts_clauses filter the way WordPress does.
-		// We can't fire get_current_screen() inside a unit/integration test
-		// context, so we invoke the filter directly and trust the clause test
-		// above covers the early-exit path.
-		add_filter(
-			'posts_clauses',
-			static function ( array $clauses ) use ( $wpdb ): array {
-				// Inject the same SQL that sort_by_c2pa_column() would.
-				$clauses['join'] .= $wpdb->prepare(
-					// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-					" LEFT JOIN {$wpdb->postmeta} AS wpai_c2pa_sort ON ( {$wpdb->posts}.ID = wpai_c2pa_sort.post_id AND wpai_c2pa_sort.meta_key = %s )",
-					C2pa_Monitor::SORT_META_KEY
-				);
-				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared
-				$clauses['orderby'] = "COALESCE( wpai_c2pa_sort.meta_value + 0, -1 ) DESC, {$wpdb->posts}.ID DESC";
-				return $clauses;
-			},
-			99
-		);
+		// Drive the real production filter end to end rather than a copy of its
+		// SQL, so a regression in sort_by_c2pa_column() actually fails here.
+		// It bails unless the screen is `upload` and the query is the main one,
+		// hence the screen setup and the wp_the_query swap below.
+		$this->set_upload_screen();
+		add_filter( 'posts_clauses', array( $this->feature, 'sort_by_c2pa_column' ), 10, 2 );
 
-		$query = new \WP_Query(
+		global $wp_the_query;
+		$previous_main = $wp_the_query;
+		$query         = new \WP_Query();
+		$wp_the_query  = $query;
+
+		$query->query(
 			array(
 				'post_type'   => 'attachment',
 				'post_status' => 'inherit',
 				'post__in'    => array( $id_present, $id_absent, $id_unscan ),
-				'orderby'     => 'post__in', // overridden by posts_clauses filter.
+				'orderby'     => 'wpai_c2pa',
+				'order'       => 'DESC',
 			)
 		);
 
-		remove_all_filters( 'posts_clauses', 99 );
+		$wp_the_query = $previous_main;
+		remove_filter( 'posts_clauses', array( $this->feature, 'sort_by_c2pa_column' ), 10 );
 
 		$ids = wp_list_pluck( $query->posts, 'ID' );
 
@@ -656,7 +654,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	 * (guard removed; the feature loader skips registration when disabled).
 	 */
 	public function test_add_attachment_fields_when_enabled_and_disabled(): void {
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
+		$attachment_id = $this->create_image_attachment();
 		$post          = get_post( (int) $attachment_id );
 		$this->assertInstanceOf( \WP_Post::class, $post );
 
@@ -681,7 +679,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
 		$feature = new C2pa_Monitor();
 
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
+		$attachment_id = $this->create_image_attachment();
 		$post          = get_post( (int) $attachment_id );
 		$this->assertInstanceOf( \WP_Post::class, $post );
 
@@ -728,7 +726,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 	public function test_add_attachment_meta_box_when_enabled_and_disabled(): void {
 		global $wp_meta_boxes;
 
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
+		$attachment_id = $this->create_image_attachment();
 		$post          = get_post( (int) $attachment_id );
 		$this->assertInstanceOf( \WP_Post::class, $post );
 
@@ -745,7 +743,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
 		$feature = new C2pa_Monitor();
 
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
+		$attachment_id = $this->create_image_attachment();
 		$post          = get_post( (int) $attachment_id );
 		$this->assertInstanceOf( \WP_Post::class, $post );
 
@@ -802,7 +800,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_option( 'wpai_feature_c2pa-monitor_enabled', true );
 		$feature = new C2pa_Monitor();
 
-		$attachment_id = $this->factory->post->create( array( 'post_type' => 'attachment', 'post_mime_type' => 'image/jpeg' ) );
+		$attachment_id = $this->create_image_attachment();
 		$record        = array(
 			'@context'       => array( 'https://schema.org/' ),
 			'schema_version' => 1,
