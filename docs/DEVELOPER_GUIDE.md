@@ -224,7 +224,7 @@ add_filter( 'wpai_features_enabled', '__return_false' );
 
 ### Preserving Data on Uninstall
 
-Deleting the plugin removes all of its data: the `wpai_request_logs` table, every `wpai_*` option (including any encrypted connector API keys), the plugin's transients, its user meta, and its scheduled events. Deactivating the plugin changes nothing — cleanup only runs on deletion.
+Deleting the plugin removes all of its data: the `wpai_request_logs` and `wpai_embeddings` tables, every `wpai_*` option (including any encrypted connector API keys), the plugin's transients, its user meta, and its scheduled events. Deactivating the plugin changes nothing — cleanup only runs on deletion.
 
 To keep that data, return `false` from the `wpai_remove_data_on_uninstall` filter from a plugin or must-use plugin that is still active when the AI plugin is deleted:
 
@@ -432,6 +432,7 @@ For more detailed information on plugin architecture, creating experiments, and 
 - [Multi-Provider Support](experiments/multi-provider-support.md) - Provider detection, model preference, and fallback behavior
 - [Example Experiment](../includes/Experiments/Example_Experiment/README.md) - Reference implementation
 - [Custom Experiment Reference](experiments/custom-experiment-reference.md) - Documented example for extending the plugin
+- [Storing Embeddings](experiments/embeddings.md) - Embedding storage layer and vector persistence
 - [Release Instructions](RELEASE_INSTRUCTIONS.md) - Checklist steps for releasing versions of the plugin
 - [WordPress Plugin Handbook](https://developer.wordpress.org/plugins/)
 - [Feature and Experiment Lifecycle](FEATURE_EXPERIMENT_LIFECYCLE.md) - Defines how new Experiments land in the plugin and how they could graduate towards WordPress core

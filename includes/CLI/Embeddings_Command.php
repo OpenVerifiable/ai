@@ -13,6 +13,10 @@ namespace WordPress\AI\CLI;
 
 use WP_CLI;
 use WP_CLI\Utils;
+use WordPress\AI\Embeddings\Embedding_Record;
+use WordPress\AI\Embeddings\Embedding_Repository;
+use WordPress\AI\Embeddings\Embedding_Schema;
+use WordPress\AiClient\Results\DTO\EmbeddingResult;
 
 use function WordPress\AI\generate_embeddings;
 use function WordPress\AI\normalize_content;
@@ -76,7 +80,8 @@ class Embeddings_Command {
 	 * : Show what would be processed without making API calls.
 	 *
 	 * [--post-id=<id>]
-	 * : Post ID whose content should be embedded.
+	 * : Post ID whose content should be embedded. The generated vectors are stored in the
+	 * embeddings table against this post, one row per chunk, and read back for inspection.
 	 *
 	 * [--chunk]
 	 * : Split content into overlapping chunks and embed each chunk.
@@ -109,6 +114,7 @@ class Embeddings_Command {
 		$chunk    = (bool) Utils\get_flag_value( $assoc_args, 'chunk', false );
 		$provider = $this->resolve_provider( $assoc_args );
 		$model    = $this->resolve_model( $assoc_args );
+		$post_id  = (int) Utils\get_flag_value( $assoc_args, 'post-id', 0 );
 
 		$pieces = $chunk ? $this->chunk_text( $text ) : array( $text );
 
@@ -119,6 +125,10 @@ class Embeddings_Command {
 
 		if ( $dry_run ) {
 			WP_CLI::log( sprintf( 'Dry run: would use model "%s" from provider "%s".', $model, $provider ) );
+
+			if ( $post_id > 0 ) {
+				WP_CLI::log( sprintf( 'Dry run: would store the vectors against post %d.', $post_id ) );
+			}
 
 			if ( $chunk ) {
 				WP_CLI::log( sprintf( 'Dry run: would embed %d chunk(s).', count( $pieces ) ) );
@@ -165,10 +175,132 @@ class Embeddings_Command {
 			WP_CLI::log( sprintf( 'Embedding: %s', $this->preview_vector( $embedding->getValues() ) ) );
 		}
 
+		// Only a post can be stored: a row is keyed by the object it describes.
+		if ( $post_id > 0 ) {
+			$content_hash = hash( 'sha256', $text );
+
+			try {
+				$stored = $this->save_embeddings( $post_id, $content_hash, $result );
+			} catch ( \InvalidArgumentException | \RuntimeException $e ) {
+				WP_CLI::error( sprintf( 'Generated the embeddings but could not store them: %s', $e->getMessage() ) );
+				return;
+			}
+
+			WP_CLI::log( sprintf( 'Stored %d row(s) for post %d:', count( $stored ), $post_id ) );
+
+			$this->log_stored_rows(
+				$post_id,
+				$result->getProviderMetadata()->getId(),
+				$result->getModelMetadata()->getId()
+			);
+		} else {
+			WP_CLI::log( 'Not stored: pass --post-id to file the vectors against a post.' );
+		}
+
 		WP_CLI::success(
 			$chunk
 				? sprintf( 'Embeddings generated successfully for %d chunk(s).', $total )
 				: 'Embeddings generated successfully.'
+		);
+	}
+
+	/**
+	 * Stores the generated vectors for a post, one row per chunk.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param int                                                     $post_id      Post whose content was embedded.
+	 * @param string                                                  $content_hash Hash of the whole source content.
+	 * @param \WordPress\AiClient\Results\DTO\EmbeddingResult          $result       The generation result.
+	 * @return list<\WordPress\AI\Embeddings\Embedding_Record> The stored records, carrying their row IDs.
+	 *
+	 * @throws \InvalidArgumentException If a record is rejected before anything is written.
+	 * @throws \RuntimeException         If a record could not be written.
+	 */
+	private function save_embeddings( int $post_id, string $content_hash, EmbeddingResult $result ): array {
+		// Provider and model come off the result rather than the flags, so the row records what
+		// actually produced these vectors instead of what was asked for.
+		$provider = $result->getProviderMetadata()->getId();
+		$model    = $result->getModelMetadata()->getId();
+
+		// The post type is the object subtype.
+		$subtype = (string) get_post_type( $post_id );
+
+		$records     = array();
+		$chunk_index = 0;
+
+		foreach ( $result->getEmbeddings() as $embedding ) {
+			$records[] = new Embedding_Record(
+				'post',
+				$post_id,
+				$provider,
+				$model,
+				$embedding->getValues(),
+				$chunk_index,
+				$content_hash,
+				0,
+				$subtype
+			);
+
+			++$chunk_index;
+		}
+
+		return ( new Embedding_Repository() )->save_many( $records );
+	}
+
+	/**
+	 * Logs the rows as the database actually holds them.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param int    $post_id  Post whose rows to show.
+	 * @param string $provider Provider ID.
+	 * @param string $model    Model ID.
+	 */
+	private function log_stored_rows( int $post_id, string $provider, string $model ): void {
+		global $wpdb;
+
+		$table = ( new Embedding_Schema() )->get_table_name();
+
+		// A direct read is the point of this method: it exists to show what the row really contains,
+		// so it deliberately bypasses the repository's hydration.
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, chunk_index, object_type, object_subtype, dimensions,
+					LENGTH( embedding ) AS embedding_bytes,
+					LENGTH( embedding_coarse ) AS coarse_bytes,
+					content_hash, created_at, updated_at
+				FROM {$table}
+				WHERE object_type = 'post' AND object_id = %d AND provider = %s AND model = %s
+				ORDER BY chunk_index ASC",
+				$post_id,
+				$provider,
+				$model
+			),
+			ARRAY_A
+		);
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+		if ( ! is_array( $rows ) || array() === $rows ) {
+			WP_CLI::warning( 'No stored rows could be read back.' );
+			return;
+		}
+
+		Utils\format_items(
+			'table',
+			$rows,
+			array(
+				'id',
+				'chunk_index',
+				'object_type',
+				'object_subtype',
+				'dimensions',
+				'embedding_bytes',
+				'coarse_bytes',
+				'content_hash',
+				'updated_at',
+			)
 		);
 	}
 
