@@ -170,12 +170,15 @@ class C2pa_Monitor extends Abstract_Feature {
 			. '}'
 			. '[data-wpai-tooltip]:hover::after{display:block}'
 			// Alignment fix for the compat field in the Attachment Details modal
-			// and the upload.php?item=<id> screen. The media modal wraps compat
-			// fields in a table row; without top alignment the content floats to
-			// the vertical midpoint of the row when there is a label alongside it.
-			. '.compat-field-wpai_c2pa th.label,'
-			. '.compat-field-wpai_c2pa td.field{display:table-cell;vertical-align:top}'
-			. '.compat-field-wpai_c2pa th.label{width:33%;padding-top:0}'
+			// and the upload.php?item=<id> screen. Core lays these rows out as
+			// floats rather than table cells: the label is float:left with
+			// margin-right:4% and the field is float:right at width:65%. The
+			// label therefore has to stay at 30% for the two to share a line —
+			// anything wider overflows and drops the field onto its own row.
+			. '.compat-field-wpai_c2pa th.label{width:30%}'
+			// Core floats the label span and pads it 8px from the top so it
+			// centres against an input. This field renders static text instead,
+			// so undo both to line the label up with the first line of the value.
 			. '.compat-field-wpai_c2pa th.label span.alignleft{float:none;display:inline}'
 			. '.compat-field-wpai_c2pa th.label br.clear{display:none}'
 		);
