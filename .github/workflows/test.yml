@@ -243,6 +243,11 @@ jobs:
         with:
           timeout_minutes: 10
           max_attempts: 3
+          # Wait long enough between attempts for DNS to re-resolve to a different
+          # CDN edge. The Debian security mirror is served by Fastly; individual
+          # edges can serve stale 404s for packages that exist at origin, and a
+          # retry after 10s (the default) hits the same edge and the same 404.
+          retry_wait_seconds: 60
           command: |
             if [ "${{ matrix.coverage }}" == "true" ]; then
             npm run wp-env:test start -- --xdebug=coverage
@@ -368,6 +373,11 @@ jobs:
         with:
           timeout_minutes: 10
           max_attempts: 3
+          # Wait long enough between attempts for DNS to re-resolve to a different
+          # CDN edge. The Debian security mirror is served by Fastly; individual
+          # edges can serve stale 404s for packages that exist at origin, and a
+          # retry after 10s (the default) hits the same edge and the same 404.
+          retry_wait_seconds: 60
           command: |
             npm run wp-env:test start
 
