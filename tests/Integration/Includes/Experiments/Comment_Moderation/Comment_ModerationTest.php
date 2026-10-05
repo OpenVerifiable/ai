@@ -31,16 +31,17 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	 *
 	 * @since 0.9.0
 	 *
+	 * @param int $post_id Optional. Post the comment belongs to. Default 0 for an orphaned comment.
 	 * @return int Comment ID.
 	 */
-	private function create_comment_without_hooks(): int {
+	private function create_comment_without_hooks( int $post_id = 0 ): int {
 		global $wpdb;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Direct insert avoids comment hooks for moderation tests.
 		$wpdb->insert(
 			$wpdb->comments,
 			array(
-				'comment_post_ID'      => 0,
+				'comment_post_ID'      => $post_id,
 				'comment_author'       => 'Test Author',
 				'comment_author_email' => 'test@example.com',
 				'comment_author_url'   => '',
@@ -192,6 +193,20 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test add_bulk_actions() does not offer the action to users who cannot moderate.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_add_bulk_actions_omits_analyze_for_users_without_moderate_comments() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'contributor' ) ) );
+
+		$experiment = new Comment_Moderation();
+		$actions    = $experiment->add_bulk_actions( array() );
+
+		$this->assertSame( array(), $actions );
+	}
+
+	/**
 	 * Test add_inline_action() adds a nonce-protected link for a comment.
 	 *
 	 * @since 0.9.0
@@ -240,6 +255,99 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 			Comment_Moderation::STATUS_PENDING,
 			get_comment_meta( $comment_id, Comment_Moderation::META_ANALYSIS_STATUS, true )
 		);
+	}
+
+	/**
+	 * Test handle_bulk_action() rejects users without the moderate_comments capability.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_handle_bulk_action_denies_users_without_moderate_comments() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'contributor' ) ) );
+
+		$comment_id = $this->create_comment_without_hooks();
+		$experiment = new Comment_Moderation();
+		$redirect   = 'https://example.com/wp-admin/edit-comments.php';
+
+		$result = $experiment->handle_bulk_action( $redirect, 'wpai_analyze', array( $comment_id ) );
+
+		$this->assertSame( $redirect, $result, 'The redirect URL should be returned untouched.' );
+		$this->assertSame(
+			'',
+			get_comment_meta( $comment_id, Comment_Moderation::META_ANALYSIS_STATUS, true ),
+			'A user without moderate_comments must not be able to queue a comment for analysis.'
+		);
+	}
+
+	/**
+	 * Test handle_bulk_action() skips comments the current user cannot edit.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_handle_bulk_action_skips_comments_the_user_cannot_edit() {
+		add_role(
+			'wpai_test_moderator',
+			'Comment Moderator',
+			array(
+				'read'                 => true,
+				'edit_posts'           => true,
+				'edit_published_posts' => true,
+				'moderate_comments'    => true,
+			)
+		);
+
+		try {
+			$moderator_id = self::factory()->user->create( array( 'role' => 'wpai_test_moderator' ) );
+			$other_id     = self::factory()->user->create( array( 'role' => 'author' ) );
+
+			$own_comment_id = $this->create_comment_without_hooks(
+				self::factory()->post->create(
+					array(
+						'post_author' => $moderator_id,
+						'post_status' => 'publish',
+					)
+				)
+			);
+			$other_comment_id = $this->create_comment_without_hooks(
+				self::factory()->post->create(
+					array(
+						'post_author' => $other_id,
+						'post_status' => 'publish',
+					)
+				)
+			);
+
+			wp_set_current_user( $moderator_id );
+
+			$this->assertTrue(
+				current_user_can( 'edit_comment', $own_comment_id ),
+				'Test setup: the moderator should be able to edit a comment on their own post.'
+			);
+			$this->assertFalse(
+				current_user_can( 'edit_comment', $other_comment_id ),
+				"Test setup: the moderator should not be able to edit a comment on another author's post."
+			);
+
+			$experiment = new Comment_Moderation();
+			$result     = $experiment->handle_bulk_action(
+				'https://example.com/wp-admin/edit-comments.php',
+				'wpai_analyze',
+				array( $own_comment_id, $other_comment_id )
+			);
+
+			$this->assertStringContainsString( 'wpai_analysis_queued=1', $result );
+			$this->assertSame(
+				Comment_Moderation::STATUS_PENDING,
+				get_comment_meta( $own_comment_id, Comment_Moderation::META_ANALYSIS_STATUS, true )
+			);
+			$this->assertSame(
+				'',
+				get_comment_meta( $other_comment_id, Comment_Moderation::META_ANALYSIS_STATUS, true ),
+				'A comment the user cannot edit must not be queued for analysis.'
+			);
+		} finally {
+			remove_role( 'wpai_test_moderator' );
+		}
 	}
 
 	/**

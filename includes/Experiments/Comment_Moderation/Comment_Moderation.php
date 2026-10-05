@@ -1034,7 +1034,7 @@ class Comment_Moderation extends Abstract_Feature {
 	 * @return array<string, string> The modified bulk actions.
 	 */
 	public function add_bulk_actions( $actions ): array {
-		if ( ! is_array( $actions ) ) {
+		if ( ! is_array( $actions ) || ! current_user_can( 'moderate_comments' ) ) {
 			return $actions;
 		}
 
@@ -1092,7 +1092,7 @@ class Comment_Moderation extends Abstract_Feature {
 	 * @return string The modified redirect URL.
 	 */
 	public function handle_bulk_action( $redirect_url, $action, $comment_ids ): string {
-		if ( 'wpai_analyze' !== (string) $action ) {
+		if ( 'wpai_analyze' !== (string) $action || ! current_user_can( 'moderate_comments' ) ) {
 			return $redirect_url;
 		}
 
@@ -1103,8 +1103,7 @@ class Comment_Moderation extends Abstract_Feature {
 		$comment_ids       = array_values( array_unique( array_filter( array_map( 'absint', (array) $comment_ids ) ) ) );
 		$valid_comment_ids = array();
 		foreach ( $comment_ids as $comment_id ) {
-			$comment = get_comment( $comment_id );
-			if ( ! $comment || ! is_a( $comment, '\WP_Comment' ) ) {
+			if ( ! current_user_can( 'edit_comment', $comment_id ) ) {
 				continue;
 			}
 
