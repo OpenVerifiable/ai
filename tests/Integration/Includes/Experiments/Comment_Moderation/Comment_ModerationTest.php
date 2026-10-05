@@ -357,7 +357,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	 * batch is bounded by the shared bulk action limit and the overflow is
 	 * reported back through the notice.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_handle_bulk_action_caps_batch_size() {
 		wp_set_current_user( $this->admin_user_id );
@@ -405,7 +405,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	/**
 	 * Test that duplicate comment IDs are only queued once.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_handle_bulk_action_deduplicates_comment_ids() {
 		wp_set_current_user( $this->admin_user_id );
@@ -426,7 +426,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	/**
 	 * Test that invalid comment IDs do not consume queue slots before the cap applies.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_handle_bulk_action_ignores_invalid_ids_before_capping() {
 		wp_set_current_user( $this->admin_user_id );
@@ -477,7 +477,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	 *
 	 * The notice should not hide a truncation warning if no comments were queued.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_show_bulk_action_notice_reports_truncation_without_queued() {
 		$original_get = $_GET; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
@@ -1056,7 +1056,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	/**
 	 * Test that get_value_score_config() exposes the expected tiers and ranges.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_get_value_score_config_returns_expected_tiers() {
 		$config = Comment_Moderation::get_value_score_config();
@@ -1086,7 +1086,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	/**
 	 * Test add_columns() inserts the value score column after toxicity.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_add_columns_inserts_value_score_column() {
 		$experiment = new Comment_Moderation();
@@ -1108,7 +1108,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	/**
 	 * Test add_sortable_columns() marks the value score column as sortable.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_add_sortable_columns_includes_value_score() {
 		$experiment = new Comment_Moderation();
@@ -1121,7 +1121,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	/**
 	 * Test render_column() outputs the matching value score badge for each tier.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_render_column_outputs_value_score_badge_per_tier() {
 		$experiment = new Comment_Moderation();
@@ -1151,7 +1151,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	/**
 	 * Test render_column() outputs an empty badge when no value score has been stored.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_render_column_outputs_empty_badge_without_value_score() {
 		$experiment = new Comment_Moderation();
@@ -1172,7 +1172,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	 * labelling every previously analyzed comment as low value, and the range
 	 * filters would then disagree with the column because they require the row.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_render_column_outputs_empty_badge_for_complete_analysis_missing_value_score() {
 		$experiment = new Comment_Moderation();
@@ -1203,7 +1203,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	 *
 	 * The missing-row check must not swallow a real 0.0 score.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_render_column_renders_stored_zero_value_score_as_low() {
 		$experiment = new Comment_Moderation();
@@ -1226,7 +1226,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	 * absint() truncates, so 0.29 rendered as 28% server-side while the JS that
 	 * updates the same badge after analysis used Math.round() and showed 29%.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_render_column_rounds_score_percentage() {
 		$experiment = new Comment_Moderation();
@@ -1251,7 +1251,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	/**
 	 * Test filtering by value score via handle_sorting_and_filtering().
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_value_score_filtering_integration() {
 		set_current_screen( 'edit-comments' );
@@ -1302,7 +1302,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	/**
 	 * Test that sorting by value score keeps comments without the meta visible.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_value_score_sorting_includes_comments_without_analysis_meta() {
 		set_current_screen( 'edit-comments' );
@@ -1346,7 +1346,7 @@ class Comment_ModerationTest extends WP_UnitTestCase {
 	/**
 	 * Test that the dashboard pills include the value score badge.
 	 *
-	 * @since x.x.x
+	 * @since 1.4.0
 	 */
 	public function test_add_dashboard_pills_includes_value_score_badge() {
 		$experiment = new Comment_Moderation();
