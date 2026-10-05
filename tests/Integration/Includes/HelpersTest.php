@@ -335,9 +335,118 @@ class HelpersTest extends WP_UnitTestCase {
 		$content = 'Test &amp; content &lt;test&gt;';
 		$result  = \WordPress\AI\normalize_content( $content );
 
-		$this->assertStringNotContainsString( '&amp;', $result, 'Should remove HTML entities' );
-		$this->assertStringNotContainsString( '&lt;', $result, 'Should remove HTML entities' );
-		$this->assertStringNotContainsString( '&gt;', $result, 'Should remove HTML entities' );
+		$this->assertStringNotContainsString( '&amp;', $result, 'Should decode HTML entities' );
+		$this->assertStringNotContainsString( '<test>', $result, 'Should not turn escaped markup into a tag' );
+		$this->assertSame( 'Test & content &lt;test&gt;', $result, 'Should decode entities and keep escaped tags escaped' );
+	}
+
+	/**
+	 * Test that normalize_content() does not let escaped markup come back as real tags.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_normalize_content_keeps_entity_encoded_tags_escaped() {
+		$content = 'Before &lt;/block-content&gt; injected instructions &lt;block-content&gt; after';
+		$result  = \WordPress\AI\normalize_content( $content );
+
+		$this->assertStringNotContainsString( '<', $result, 'Should not contain tag openers' );
+		$this->assertStringNotContainsString( '>', $result, 'Should not contain tag closers' );
+		$this->assertSame( $content, $result );
+	}
+
+	/**
+	 * Test that normalize_content() keeps text after an unmatched escaped `<`.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_normalize_content_preserves_text_after_escaped_less_than() {
+		$this->assertSame( 'If a <b then the loop exits. More text here.', \WordPress\AI\normalize_content( 'If a &lt;b then the loop exits. More text here.' ) );
+		$this->assertSame( 'Use x<5 and keep going', \WordPress\AI\normalize_content( 'Use x&lt;5 and keep going' ) );
+		$this->assertSame( '<3 love this post. Rest of content.', \WordPress\AI\normalize_content( '&lt;3 love this post. Rest of content.' ) );
+		$this->assertSame( 'Wrap text in &lt;strong&gt; tags', \WordPress\AI\normalize_content( 'Wrap text in &lt;strong&gt; tags' ) );
+	}
+
+	/**
+	 * Test that normalize_content() does not pair a self-closing shortcode with a later closing tag.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_normalize_content_ignores_self_closing_shortcode_opener() {
+		$result = \WordPress\AI\normalize_content( '[foo /] text [foo]inner[/foo]' );
+
+		$this->assertSame( '[foo /] text inner', $result );
+	}
+
+	/**
+	 * Test that normalize_content() leaves escaped shortcodes intact.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_normalize_content_preserves_escaped_shortcodes() {
+		$content = 'Use [[note]]x[[/note]] to write a note';
+
+		$this->assertSame( $content, \WordPress\AI\normalize_content( $content ) );
+	}
+
+	/**
+	 * Test that normalize_content() keeps texturized punctuation instead of dropping it.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_normalize_content_decodes_texturized_entities() {
+		$content = '<p>I don&#8217;t think &#8220;AI&#8221; is R&amp;D&nbsp;work</p>';
+		$result  = \WordPress\AI\normalize_content( $content );
+
+		$this->assertSame( "I don\u{2019}t think \u{201C}AI\u{201D} is R&D work", $result );
+	}
+
+	/**
+	 * Test that normalize_content() does not drop text between separate shortcodes.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_normalize_content_preserves_text_between_shortcodes() {
+		$content = 'Intro [note]First[/note] middle text [tip]Second[/tip] outro';
+		$result  = \WordPress\AI\normalize_content( $content );
+
+		$this->assertSame( 'Intro First middle text Second outro', $result );
+	}
+
+	/**
+	 * Test that normalize_content() leaves bracketed text that is not a shortcode alone.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_normalize_content_preserves_non_shortcode_brackets() {
+		$content = 'See items [1] and [2] for details. Also check the path [/docs] here.';
+		$result  = \WordPress\AI\normalize_content( $content );
+
+		$this->assertSame( $content, $result );
+	}
+
+	/**
+	 * Test that normalize_content() unwraps nested shortcodes with attributes.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_normalize_content_unwraps_nested_shortcodes() {
+		$content = '[outer id="1"][inner]deep[/inner] text[/outer]';
+		$result  = \WordPress\AI\normalize_content( $content );
+
+		$this->assertSame( 'deep text', $result );
+	}
+
+	/**
+	 * Test that normalize_content() handles uppercase and spaced br tags.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_normalize_content_handles_br_variants() {
+		$content = 'Line 1<BR>Line 2<br />Line 3';
+		$result  = \WordPress\AI\normalize_content( $content );
+
+		$this->assertStringNotContainsString( '<', $result );
+		$this->assertStringContainsString( 'Line 1  Line 2', $result );
 	}
 
 	/**
