@@ -1,8 +1,8 @@
-# C2PA Monitor
+# Content Verification
 
 ## Summary
 
-Read-only experiment that detects [C2PA Content Credentials](https://c2pa.org/) in freshly uploaded images and captures the raw manifest store before WordPress's image processing pipeline destroys it. It writes a structured `_wpai_monitor_record` postmeta entry and persists the raw manifest bytes to a sidecar file for downstream consumers. The capture is fail-open and never blocks an upload.
+Read-only experiment that detects [C2PA Content Credentials](https://c2pa.org/) in freshly uploaded images and captures the raw manifest store before WordPress's image processing pipeline destroys it. It writes a structured `_wpai_monitor_record` postmeta entry and persists the raw manifest bytes to a sidecar file for downstream consumers.
 
 ## Status
 
@@ -36,7 +36,7 @@ The handler is wrapped in a `try / catch ( Throwable )` boundary and writes a re
 
 **Media Library UI**
 
-- `manage_media_columns` / `manage_upload_columns` → `add_media_column()`: registers the "Content Credentials" list table column.
+- `manage_media_columns` / `manage_upload_columns` → `add_media_column()`: registers the "Content Verification" list table column.
 - `manage_media_custom_column` → `render_media_column()`: renders the three-state status badge with a CSS hover tooltip.
 - `manage_upload_sortable_columns` → `register_sortable_column()`: marks the column as sortable (descending by default).
 - `pre_get_posts` → `sort_by_c2pa_column()`: injects `meta_key` / `orderby` when sorting by the column.
@@ -44,8 +44,8 @@ The handler is wrapped in a `try / catch ( Throwable )` boundary and writes a re
 
 **Attachment Details / Edit Media UI**
 
-- `attachment_fields_to_edit` → `add_attachment_fields()`: adds a read-only "Content Credentials" field to the media modal and `upload.php?item=<id>` panel. `show_in_edit => false` suppresses it on the classic Edit Media screen where the meta box is used instead.
-- `add_meta_boxes_attachment` → `add_attachment_meta_box()` / `render_attachment_meta_box()`: registers and renders a "Content Credentials" side meta box on `post.php?post=<id>&action=edit`.
+- `attachment_fields_to_edit` → `add_attachment_fields()`: adds a read-only "Content Verification" field to the media modal and `upload.php?item=<id>` panel. `show_in_edit => false` suppresses it on the classic Edit Media screen where the meta box is used instead.
+- `add_meta_boxes_attachment` → `add_attachment_meta_box()` / `render_attachment_meta_box()`: registers and renders a "Content Verification" side meta box on `post.php?post=<id>&action=edit`.
 
 ## Postmeta record
 
@@ -141,13 +141,13 @@ Both files are MIT-licensed (© Adobe, 2023). The `/tests` directory is excluded
 
 ## Media Library column
 
-When the experiment is enabled a **Content Credentials** column appears in the Media Library list view for each attachment:
+When the experiment is enabled a **Content Verification** column appears in the Media Library list view for each attachment:
 
 | Value | Tooltip / Meaning |
 |---|---|
-| ✓ Credentials | *Unverified* — C2PA Content Credentials were detected in this file but have not been validated. Links to the [CAI Verify tool](https://verify.contentauthenticity.org/). |
+| ✓ Credentials found | *Unverified* — C2PA Content Credentials were detected in this file but have not been validated. Links to the [CAI Verify tool](https://verify.contentauthenticity.org/). |
 | No credentials | No C2PA Content Credentials were detected in this file. |
-| — | No scan record exists (uploaded before the experiment was enabled, or a non-image MIME type). |
+| Unchecked | No scan record exists (uploaded before the experiment was enabled, or a non-image MIME type). |
 
 The column is sortable: clicking the header sorts credentials-first (descending). Attachments with no scan record appear at the bottom.
 
@@ -155,10 +155,10 @@ The column is sortable: clicking the header sorts credentials-first (descending)
 
 ## Attachment Details and Edit Media screens
 
-The same three-state **Content Credentials** status is surfaced on two additional admin screens, using visible help text rather than a CSS tooltip (the tooltip's `position: absolute` positioning is clipped by the media modal's overflow container):
+The same three-state **Content Verification** status is surfaced on two additional admin screens, using visible help text rather than a CSS tooltip (the tooltip's `position: absolute` positioning is clipped by the media modal's overflow container):
 
 - **Attachment details** (`upload.php?item=<id>` and the media modal) — rendered via the `attachment_fields_to_edit` filter as a read-only HTML field. `show_in_edit => false` suppresses it on the Edit Media screen to avoid duplicating the meta box.
-- **Edit Media** (`post.php?post=<id>&action=edit`) — rendered in a "Content Credentials" side meta box via `add_meta_boxes_attachment`, with a `<p class="description">` paragraph below the badge for each scannable state.
+- **Edit Media** (`post.php?post=<id>&action=edit`) — rendered in a "Content Verification" side meta box via `add_meta_boxes_attachment`, with a `<p class="description">` paragraph below the badge for each scannable state.
 
 ## Out of scope (this release)
 

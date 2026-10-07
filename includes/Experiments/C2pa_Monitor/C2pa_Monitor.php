@@ -101,8 +101,8 @@ class C2pa_Monitor extends Abstract_Feature {
 	 */
 	protected function load_metadata(): array {
 		return array(
-			'label'       => __( 'C2PA Monitor', 'ai' ),
-			'description' => __( 'Detects C2PA Content Credentials in uploaded images, writes the raw manifest to a sidecar file, and stores a structured record in postmeta. Read-only and fail-open; never blocks an upload.', 'ai' ),
+			'label'       => __( 'Content Verification', 'ai' ),
+			'description' => __( 'Detects C2PA Content Credentials in uploaded images, writes the raw manifest to a sidecar file, and stores a structured record in postmeta.', 'ai' ),
 			'category'    => Experiment_Category::ADMIN,
 			'stability'   => 'experimental',
 			'capability'  => 'none',
@@ -193,7 +193,7 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * @return array<string, string>
 	 */
 	public function add_media_column( array $columns ): array {
-		$columns['wpai_c2pa'] = __( 'Content Credentials', 'ai' );
+		$columns['wpai_c2pa'] = __( 'Content Verification', 'ai' );
 		return $columns;
 	}
 
@@ -202,9 +202,9 @@ class C2pa_Monitor extends Abstract_Feature {
 	 *
 	 * Used by render_media_column(), add_attachment_fields(), and
 	 * render_attachment_meta_box(). Returns one of three states:
-	 * - "✓ Credentials" (linked to the CAI verify tool) when a manifest was detected.
+	 * - "✓ Credentials found" (linked to the CAI verify tool) when a manifest was detected.
 	 * - "No credentials" when the attachment was scanned and none were found.
-	 * - "—" when no scan record exists (e.g. uploaded before the experiment
+	 * - "Unchecked" when no scan record exists (e.g. uploaded before the experiment
 	 *   was enabled, or a non-image MIME type).
 	 *
 	 * Pass `false` for $with_tooltip when rendering on screens that have
@@ -220,12 +220,12 @@ class C2pa_Monitor extends Abstract_Feature {
 	private function get_status_html( int $post_id, bool $with_tooltip = true ): string {
 		$raw = get_post_meta( $post_id, self::POSTMETA_KEY, true );
 		if ( ! is_string( $raw ) || '' === $raw ) {
-			return '<span aria-label="' . esc_attr__( 'Not scanned', 'ai' ) . '">—</span>';
+			return '<span>' . esc_html__( 'Unchecked', 'ai' ) . '</span>';
 		}
 
 		$record = json_decode( $raw, true );
 		if ( ! is_array( $record ) || ! isset( $record['c2pa']['present'] ) ) {
-			return '<span aria-label="' . esc_attr__( 'Not scanned', 'ai' ) . '">—</span>';
+			return '<span>' . esc_html__( 'Unchecked', 'ai' ) . '</span>';
 		}
 
 		if ( $record['c2pa']['present'] ) {
@@ -235,7 +235,7 @@ class C2pa_Monitor extends Abstract_Feature {
 			return '<a href="https://verify.contentauthenticity.org/" target="_blank" rel="noopener noreferrer"'
 				. ' style="color:#2271b1;text-decoration:none"'
 				. $tooltip . '>'
-				. '&#10003; ' . esc_html__( 'Credentials', 'ai' )
+				. '&#10003; ' . esc_html__( 'Credentials found', 'ai' )
 				. '</a>';
 		}
 
@@ -254,7 +254,7 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * display it (Attachment details, Edit Media meta box), where a CSS tooltip
 	 * would either clip or be inaccessible.
 	 *
-	 * Returns an empty string for the "not scanned" state because "—" is
+	 * Returns an empty string for the "Unchecked" state because "Unchecked" is
 	 * self-explanatory in context and a missing explanation is less confusing
 	 * than a generic one.
 	 *
@@ -288,9 +288,9 @@ class C2pa_Monitor extends Abstract_Feature {
 	 * Renders the C2PA status cell for the given attachment.
 	 *
 	 * Outputs one of three states:
-	 * - "✓ Credentials" when a C2PA manifest was detected.
+	 * - "✓ Credentials found" when a C2PA manifest was detected.
 	 * - "No credentials" when the attachment was scanned and none were found.
-	 * - "—" when no scan record exists (e.g. uploaded before the experiment
+	 * - "Unchecked" when no scan record exists (e.g. uploaded before the experiment
 	 *   was enabled, or a non-image MIME type).
 	 *
 	 * @since x.x.x
@@ -339,7 +339,7 @@ class C2pa_Monitor extends Abstract_Feature {
 		}
 
 		$form_fields['wpai_c2pa'] = array(
-			'label'        => __( 'Content Credentials', 'ai' ),
+			'label'        => __( 'Content Verification', 'ai' ),
 			'input'        => 'html',
 			'show_in_edit' => false,
 			'html'         => $this->get_status_html( $post->ID, false ),
@@ -366,7 +366,7 @@ class C2pa_Monitor extends Abstract_Feature {
 
 		add_meta_box(
 			'wpai-c2pa-monitor',
-			__( 'Content Credentials', 'ai' ),
+			__( 'Content Verification', 'ai' ),
 			array( $this, 'render_attachment_meta_box' ),
 			'attachment',
 			'side',

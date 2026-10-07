@@ -403,7 +403,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 
 		$with = $this->feature->add_media_column( $base );
 		$this->assertArrayHasKey( 'wpai_c2pa', $with );
-		$this->assertSame( 'Content Credentials', $with['wpai_c2pa'] );
+		$this->assertSame( 'Content Verification', $with['wpai_c2pa'] );
 	}
 
 	/**
@@ -418,11 +418,11 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 
 		$attachment_id = $this->create_image_attachment();
 
-		// No record yet: should show dash.
+		// No record yet: should show Unchecked.
 		ob_start();
 		$feature->render_media_column( 'wpai_c2pa', (int) $attachment_id );
 		$out = ob_get_clean();
-		$this->assertStringContainsString( '—', $out );
+		$this->assertStringContainsString( 'Unchecked', $out );
 
 		// present=true: wp_get_attachment_url() always returns a URL for a valid
 		// attachment post (even without _wp_attached_file it uses ?attachment_id=X),
@@ -441,7 +441,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		ob_start();
 		$feature->render_media_column( 'wpai_c2pa', (int) $attachment_id );
 		$out = ob_get_clean();
-		$this->assertStringContainsString( 'Credentials', $out );
+		$this->assertStringContainsString( 'Credentials found', $out );
 		$this->assertStringContainsString( '&#10003;', $out );
 		$this->assertStringContainsString( 'verify.contentauthenticity.org', $out );
 		$this->assertStringContainsString( 'target="_blank"', $out );
@@ -495,7 +495,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		ob_start();
 		$feature->render_media_column( 'wpai_c2pa', (int) $attachment_id );
 		$out = ob_get_clean();
-		$this->assertStringContainsString( '—', $out );
+		$this->assertStringContainsString( 'Unchecked', $out );
 
 		delete_option( 'wpai_features_enabled' );
 		delete_option( 'wpai_feature_c2pa-monitor_enabled' );
@@ -660,13 +660,13 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 
 		$fields = $this->feature->add_attachment_fields( array(), $post );
 		$this->assertArrayHasKey( 'wpai_c2pa', $fields );
-		$this->assertSame( 'Content Credentials', $fields['wpai_c2pa']['label'] );
+		$this->assertSame( 'Content Verification', $fields['wpai_c2pa']['label'] );
 		$this->assertSame( 'html', $fields['wpai_c2pa']['input'] );
 		// show_in_edit must be false to prevent duplication with the meta box on Edit Media.
 		$this->assertFalse( $fields['wpai_c2pa']['show_in_edit'] );
 		// helps key must be set (may be empty string for not-scanned state).
 		$this->assertArrayHasKey( 'helps', $fields['wpai_c2pa'] );
-		$this->assertStringContainsString( '—', $fields['wpai_c2pa']['html'] );
+		$this->assertStringContainsString( 'Unchecked', $fields['wpai_c2pa']['html'] );
 		// Tooltip attribute must NOT appear in the field html (reserved for the column).
 		$this->assertStringNotContainsString( 'data-wpai-tooltip', $fields['wpai_c2pa']['html'] );
 	}
@@ -683,9 +683,9 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$post          = get_post( (int) $attachment_id );
 		$this->assertInstanceOf( \WP_Post::class, $post );
 
-		// No record: dash.
+		// No record: Unchecked.
 		$fields = $feature->add_attachment_fields( array(), $post );
-		$this->assertStringContainsString( '—', $fields['wpai_c2pa']['html'] );
+		$this->assertStringContainsString( 'Unchecked', $fields['wpai_c2pa']['html'] );
 
 		// present=true: verify link, no tooltip, help text present.
 		$record = array(
@@ -701,7 +701,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		update_post_meta( (int) $attachment_id, C2pa_Monitor::POSTMETA_KEY, wp_json_encode( $record ) );
 		$fields = $feature->add_attachment_fields( array(), $post );
 		$html   = $fields['wpai_c2pa']['html'];
-		$this->assertStringContainsString( 'Credentials', $html );
+		$this->assertStringContainsString( 'Credentials found', $html );
 		$this->assertStringContainsString( 'verify.contentauthenticity.org', $html );
 		$this->assertStringNotContainsString( 'data-wpai-tooltip', $html );
 		$this->assertNotEmpty( $fields['wpai_c2pa']['helps'] );
@@ -747,12 +747,12 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$post          = get_post( (int) $attachment_id );
 		$this->assertInstanceOf( \WP_Post::class, $post );
 
-		// No record: dash inside <p>, no description paragraph, no tooltip.
+		// No record: Unchecked inside <p>, no description paragraph, no tooltip.
 		ob_start();
 		$feature->render_attachment_meta_box( $post );
 		$out = ob_get_clean();
 		$this->assertStringContainsString( '<p>', $out );
-		$this->assertStringContainsString( '—', $out );
+		$this->assertStringContainsString( 'Unchecked', $out );
 		$this->assertStringNotContainsString( 'data-wpai-tooltip', $out );
 		$this->assertStringNotContainsString( 'class="description"', $out );
 
@@ -772,7 +772,7 @@ class C2pa_MonitorTest extends WP_UnitTestCase {
 		$feature->render_attachment_meta_box( $post );
 		$out = ob_get_clean();
 		$this->assertStringContainsString( 'verify.contentauthenticity.org', $out );
-		$this->assertStringContainsString( 'Credentials', $out );
+		$this->assertStringContainsString( 'Credentials found', $out );
 		$this->assertStringNotContainsString( 'data-wpai-tooltip', $out );
 		$this->assertStringContainsString( 'class="description"', $out );
 
